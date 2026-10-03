@@ -65,6 +65,8 @@ void UWorldGridComponent::InitializeGrid(int32 InWidth, int32 InHeight, float In
 	{
 		UMassGridBuildingLibrary::PopulateGridWithRandomBuildings(GridData, InBuildingCount, PlacedBuildings);
 	}
+
+	OnGridInitialized.Broadcast();
 }
 
 bool UWorldGridComponent::SpawnAdditionalBuilding(FPlacedBuilding& OutBuilding)
@@ -85,6 +87,7 @@ bool UWorldGridComponent::SpawnAdditionalBuilding(FPlacedBuilding& OutBuilding)
 		if (UMassGridBuildingLibrary::TryPlaceBuilding(GridData, Shape, RootCoord, NextBuildingId, OutBuilding))
 		{
 			PlacedBuildings.Add(OutBuilding);
+			OnBuildingAdded.Broadcast(OutBuilding);
 			return true;
 		}
 	}
@@ -141,4 +144,32 @@ bool UWorldGridComponent::FindPathLocalPositions(const FGridCoord& Start, const 
 bool UWorldGridComponent::GetRandomWalkableCell(FGridCoord& OutCoord) const
 {
 	return GridData.GetRandomWalkableCell(OutCoord);
+}
+
+void UWorldGridComponent::GetAllBuildingBlockTransforms(
+	TArray<FTransform>& OutBlockTransforms, 
+	float InBuildingHeight, 
+	float InBlockScale) const
+{
+	OutBlockTransforms.Empty();
+	for (const FPlacedBuilding& Building : PlacedBuildings)
+	{
+		TArray<FTransform> BuildingTransforms = UMassGridBuildingLibrary::CalculateBuildingBlockTransforms(
+			GridData, Building, GridZOffset, InBuildingHeight, InBlockScale);
+		OutBlockTransforms.Append(BuildingTransforms);
+	}
+}
+
+void UWorldGridComponent::GetAllBuildingEntryTransforms(
+	TArray<FTransform>& OutEntryTransforms, 
+	float InEntryHeight, 
+	float InEntryScale) const
+{
+	OutEntryTransforms.Empty(PlacedBuildings.Num());
+	for (const FPlacedBuilding& Building : PlacedBuildings)
+	{
+		FTransform EntryTransform = UMassGridBuildingLibrary::CalculateBuildingEntryTransform(
+			GridData, Building, GridZOffset, InEntryHeight, InEntryScale);
+		OutEntryTransforms.Add(EntryTransform);
+	}
 }

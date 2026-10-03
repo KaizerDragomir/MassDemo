@@ -8,6 +8,9 @@
 #include "MassGridBuilding.h"
 #include "WorldGridComponent.generated.h"
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnWorldGridInitialized);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnWorldGridBuildingAdded, const FPlacedBuilding&, NewBuilding);
+
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class MASSDEMO_API UWorldGridComponent : public UActorComponent
 {
@@ -15,6 +18,14 @@ class MASSDEMO_API UWorldGridComponent : public UActorComponent
 
 public:
 	UWorldGridComponent();
+
+	/** Broadcast when grid is initialized or re-initialized */
+	UPROPERTY(BlueprintAssignable, Category = "MassGrid|Events")
+	FOnWorldGridInitialized OnGridInitialized;
+
+	/** Broadcast when a new building is dynamically added to the grid */
+	UPROPERTY(BlueprintAssignable, Category = "MassGrid|Events")
+	FOnWorldGridBuildingAdded OnBuildingAdded;
 
 	/** Grid width in cells (randomized or configured, e.g. 15) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid")
@@ -94,6 +105,20 @@ public:
 	/** Gets a random walkable cell on this grid */
 	UFUNCTION(BlueprintPure, Category = "MassGrid")
 	bool GetRandomWalkableCell(FGridCoord& OutCoord) const;
+
+	/** Gets all cube block transforms for all placed buildings on this grid */
+	UFUNCTION(BlueprintPure, Category = "MassGrid")
+	void GetAllBuildingBlockTransforms(
+		TArray<FTransform>& OutBlockTransforms, 
+		float InBuildingHeight = 100.0f, 
+		float InBlockScale = 0.95f) const;
+
+	/** Gets all cube entry transforms for all placed buildings on this grid */
+	UFUNCTION(BlueprintPure, Category = "MassGrid")
+	void GetAllBuildingEntryTransforms(
+		TArray<FTransform>& OutEntryTransforms, 
+		float InEntryHeight = 20.0f, 
+		float InEntryScale = 0.8f) const;
 
 private:
 	UPROPERTY(VisibleInstanceOnly, Category = "Grid")

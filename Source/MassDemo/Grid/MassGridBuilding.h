@@ -96,4 +96,22 @@ public:
 		int32 NumberOfBuildings, 
 		TArray<FPlacedBuilding>& OutPlacedBuildings,
 		int32 MaxPlacementAttempts = 50);
+
+	/** Computes actor-local cube instance transforms for all blocked cells of a building */
+	UFUNCTION(BlueprintPure, Category = "MassGrid|Building")
+	static TArray<FTransform> CalculateBuildingBlockTransforms(
+		const FWorldGridData& Grid,
+		const FPlacedBuilding& Building,
+		float GridZOffset = 50.0f,
+		float BuildingHeight = 100.0f,
+		float BlockScale = 0.95f);
+
+	/** Computes actor-local cube instance transform for the entrance cell of a building */
+	UFUNCTION(BlueprintPure, Category = "MassGrid|Building")
+	static FTransform CalculateBuildingEntryTransform(
+		const FWorldGridData& Grid,
+		const FPlacedBuilding& Building,
+		float GridZOffset = 50.0f,
+		float EntryHeight = 20.0f,
+		float EntryScale = 0.8f);
 };

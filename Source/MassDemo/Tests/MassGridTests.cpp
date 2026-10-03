@@ -107,4 +107,64 @@ bool FMassGridPathfindingTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMassGridBuildingVisualizerTest, "MassDemo.Grid.BuildingVisualizer", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::ProductFilter)
+
+bool FMassGridBuildingVisualizerTest::RunTest(const FString& Parameters)
+{
+	FWorldGridData Grid;
+	Grid.Initialize(10, 10, 100.0f);
+
+	FTetrisBuildingShape TShape = UMassGridBuildingLibrary::GetShapeTemplate(ETetrisShapeType::TShape3x2);
+	FPlacedBuilding Placed;
+
+	const bool bSuccess = UMassGridBuildingLibrary::TryPlaceBuilding(Grid, TShape, FGridCoord(2, 2), 1, Placed);
+	TestTrue(TEXT("TShape should be placed"), bSuccess);
+
+	const float GridZ = 50.0f;
+	const float BuildingHeight = 120.0f;
+	const float BlockScale = 0.9f;
+
+	// 1. Test Block Transforms
+	const TArray<FTransform> BlockTransforms = UMassGridBuildingLibrary::CalculateBuildingBlockTransforms(
+		Grid, Placed, GridZ, BuildingHeight, BlockScale);
+
+	TestEqual(TEXT("Block transform count must match BlockedCoords count"), BlockTransforms.Num(), Placed.BlockedCoords.Num());
+
+	const FVector ExpectedScale(
+		(Grid.CellSize * BlockScale) / 100.0f,
+		(Grid.CellSize * BlockScale) / 100.0f,
+		BuildingHeight / 100.0f
+	);
+	const float ExpectedCenterZ = GridZ + (BuildingHeight * 0.5f);
+
+	for (int32 i = 0; i < BlockTransforms.Num(); ++i)
+	{
+		const FTransform& Trans = BlockTransforms[i];
+		const FGridCoord& Coord = Placed.BlockedCoords[i];
+		const FVector ExpectedPos = Grid.CellToLocalPosition(Coord, ExpectedCenterZ);
+
+		TestEqual(TEXT("Block transform scale must match"), Trans.GetScale3D(), ExpectedScale);
+		TestEqual(TEXT("Block transform location must match"), Trans.GetLocation(), ExpectedPos);
+	}
+
+	// 2. Test Entry Transform
+	const float EntryHeight = 20.0f;
+	const float EntryScale = 0.8f;
+	const FTransform EntryTransform = UMassGridBuildingLibrary::CalculateBuildingEntryTransform(
+		Grid, Placed, GridZ, EntryHeight, EntryScale);
+
+	const FVector ExpectedEntryScale(
+		(Grid.CellSize * EntryScale) / 100.0f,
+		(Grid.CellSize * EntryScale) / 100.0f,
+		EntryHeight / 100.0f
+	);
+	const float ExpectedEntryCenterZ = GridZ + (EntryHeight * 0.5f);
+	const FVector ExpectedEntryPos = Grid.CellToLocalPosition(Placed.EntryCoord, ExpectedEntryCenterZ);
+
+	TestEqual(TEXT("Entry transform scale must match"), EntryTransform.GetScale3D(), ExpectedEntryScale);
+	TestEqual(TEXT("Entry transform location must match"), EntryTransform.GetLocation(), ExpectedEntryPos);
+
+	return true;
+}
+
 #endif

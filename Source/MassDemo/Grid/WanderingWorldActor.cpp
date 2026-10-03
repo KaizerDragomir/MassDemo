@@ -6,6 +6,9 @@
 #include "Grid/MassGridSubsystem.h"
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/InstancedStaticMeshComponent.h"
+#include "UObject/ConstructorHelpers.h"
+#include "Materials/MaterialInterface.h"
 #include "MassEntitySubsystem.h"
 #include "MassEntityManager.h"
 #include "MassCommonFragments.h"
@@ -28,6 +31,24 @@ AWanderingWorldActor::AWanderingWorldActor()
 	BaseMeshComponent->SetupAttachment(RootComponent);
 	BaseMeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
+	BuildingVisualComponent = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("BuildingVisualComponent"));
+	BuildingVisualComponent->SetupAttachment(RootComponent);
+	BuildingVisualComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	EntryVisualComponent = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("EntryVisualComponent"));
+	EntryVisualComponent->SetupAttachment(RootComponent);
+	EntryVisualComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMeshFinder(TEXT("/Engine/BasicShapes/Cube.Cube"));
+	if (CubeMeshFinder.Succeeded())
+	{
+		BuildingMesh = CubeMeshFinder.Object;
+		EntryMesh = CubeMeshFinder.Object;
+		BuildingVisualComponent->SetStaticMesh(BuildingMesh);
+		EntryVisualComponent->SetStaticMesh(EntryMesh);
+		BaseMeshComponent->SetStaticMesh(CubeMeshFinder.Object);
+	}
+
 	CollisionBoxComponent = CreateDefaultSubobject<UBoxComponent>(TEXT("CollisionBoxComponent"));
 	CollisionBoxComponent->SetupAttachment(RootComponent);
 	CollisionBoxComponent->SetBoxExtent(FVector(800.0f, 1000.0f, 200.0f));
@@ -48,6 +69,9 @@ void AWanderingWorldActor::BeginPlay()
 
 	if (WorldGridComponent)
 	{
+		WorldGridComponent->OnGridInitialized.AddDynamic(this, &AWanderingWorldActor::HandleGridInitialized);
+		WorldGridComponent->OnBuildingAdded.AddDynamic(this, &AWanderingWorldActor::HandleBuildingAdded);
+
 		WorldGridComponent->InitializeGrid(GridWidth, GridHeight, GridCellSize, bAutoPopulateBuildings ? InitialBuildingCount : 0);
 	}
 
@@ -251,5 +275,121 @@ void AWanderingWorldActor::SpawnGridEntities(int32 Count)
 		TransformFrag.SetTransform(FTransform(FRotator::ZeroRotator, WorldPos));
 
 		SpawnedEntities.Add(NewEntity);
+	}
+}
+
+void AWanderingWorldActor::HandleGridInitialized()
+{
+	UpdateBaseMeshVisual();
+	RebuildBuildingVisuals();
+}
+
+void AWanderingWorldActor::HandleBuildingAdded(const FPlacedBuilding& NewBuilding)
+{
+	if (bVisualizeBuildings)
+	{
+		AddBuildingVisual(NewBuilding);
+	}
+}
+
+void AWanderingWorldActor::RebuildBuildingVisuals()
+{
+	ClearBuildingVisuals();
+
+	if (!bVisualizeBuildings || !WorldGridComponent)
+	{
+		return;
+	}
+
+	if (BuildingMesh && BuildingVisualComponent && BuildingVisualComponent->GetStaticMesh() != BuildingMesh)
+	{
+		BuildingVisualComponent->SetStaticMesh(BuildingMesh);
+	}
+	if (BuildingMaterial && BuildingVisualComponent)
+	{
+		BuildingVisualComponent->SetMaterial(0, BuildingMaterial);
+	}
+
+	if (EntryMesh && EntryVisualComponent && EntryVisualComponent->GetStaticMesh() != EntryMesh)
+	{
+		EntryVisualComponent->SetStaticMesh(EntryMesh);
+	}
+	if (EntryMaterial && EntryVisualComponent)
+	{
+		EntryVisualComponent->SetMaterial(0, EntryMaterial);
+	}
+
+	const TArray<FPlacedBuilding>& Buildings = WorldGridComponent->GetPlacedBuildings();
+	for (const FPlacedBuilding& Building : Buildings)
+	{
+		AddBuildingVisual(Building);
+	}
+}
+
+void AWanderingWorldActor::AddBuildingVisual(const FPlacedBuilding& Building)
+{
+	if (!WorldGridComponent)
+	{
+		return;
+	}
+
+	const FWorldGridData& GridData = WorldGridComponent->GetGridData();
+	const float GridZ = WorldGridComponent->GridZOffset;
+
+	if (BuildingVisualComponent)
+	{
+		const TArray<FTransform> BlockTransforms = UMassGridBuildingLibrary::CalculateBuildingBlockTransforms(
+			GridData, Building, GridZ, BuildingHeight, BuildingBlockScale);
+
+		for (const FTransform& Trans : BlockTransforms)
+		{
+			BuildingVisualComponent->AddInstance(Trans);
+		}
+	}
+
+	if (bVisualizeEntries && EntryVisualComponent)
+	{
+		const FTransform EntryTrans = UMassGridBuildingLibrary::CalculateBuildingEntryTransform(
+			GridData, Building, GridZ, EntryHeight, EntryBlockScale);
+
+		EntryVisualComponent->AddInstance(EntryTrans);
+	}
+}
+
+void AWanderingWorldActor::ClearBuildingVisuals()
+{
+	if (BuildingVisualComponent)
+	{
+		BuildingVisualComponent->ClearInstances();
+	}
+	if (EntryVisualComponent)
+	{
+		EntryVisualComponent->ClearInstances();
+	}
+}
+
+void AWanderingWorldActor::UpdateBaseMeshVisual()
+{
+	if (!BaseMeshComponent || !WorldGridComponent)
+	{
+		return;
+	}
+
+	if (BaseMeshMaterial)
+	{
+		BaseMeshComponent->SetMaterial(0, BaseMeshMaterial);
+	}
+
+	const float FloorWidth = GridWidth * GridCellSize;
+	const float FloorHeight = GridHeight * GridCellSize;
+	const float FloorThickness = 20.0f;
+	const float GridZ = WorldGridComponent->GridZOffset;
+
+	BaseMeshComponent->SetRelativeLocation(FVector(0.0f, 0.0f, GridZ - FloorThickness * 0.5f));
+	BaseMeshComponent->SetRelativeScale3D(FVector(FloorWidth / 100.0f, FloorHeight / 100.0f, FloorThickness / 100.0f));
+
+	if (CollisionBoxComponent)
+	{
+		CollisionBoxComponent->SetBoxExtent(FVector(FloorWidth * 0.5f + 100.0f, FloorHeight * 0.5f + 100.0f, 200.0f));
 	}
 }

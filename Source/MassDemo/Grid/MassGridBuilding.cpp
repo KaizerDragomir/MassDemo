@@ -214,3 +214,49 @@ int32 UMassGridBuildingLibrary::PopulateGridWithRandomBuildings(
 
 	return PlacedCount;
 }
+
+TArray<FTransform> UMassGridBuildingLibrary::CalculateBuildingBlockTransforms(
+	const FWorldGridData& Grid,
+	const FPlacedBuilding& Building,
+	float GridZOffset,
+	float BuildingHeight,
+	float BlockScale)
+{
+	TArray<FTransform> Transforms;
+	Transforms.Reserve(Building.BlockedCoords.Num());
+
+	const FVector CubeScale(
+		(Grid.CellSize * BlockScale) / 100.0f,
+		(Grid.CellSize * BlockScale) / 100.0f,
+		BuildingHeight / 100.0f
+	);
+
+	const float CubeCenterZ = GridZOffset + (BuildingHeight * 0.5f);
+
+	for (const FGridCoord& Coord : Building.BlockedCoords)
+	{
+		const FVector LocalPos = Grid.CellToLocalPosition(Coord, CubeCenterZ);
+		Transforms.Add(FTransform(FRotator::ZeroRotator, LocalPos, CubeScale));
+	}
+
+	return Transforms;
+}
+
+FTransform UMassGridBuildingLibrary::CalculateBuildingEntryTransform(
+	const FWorldGridData& Grid,
+	const FPlacedBuilding& Building,
+	float GridZOffset,
+	float EntryHeight,
+	float EntryScale)
+{
+	const FVector EntryScaleVec(
+		(Grid.CellSize * EntryScale) / 100.0f,
+		(Grid.CellSize * EntryScale) / 100.0f,
+		EntryHeight / 100.0f
+	);
+
+	const float EntryCenterZ = GridZOffset + (EntryHeight * 0.5f);
+	const FVector LocalPos = Grid.CellToLocalPosition(Building.EntryCoord, EntryCenterZ);
+
+	return FTransform(FRotator::ZeroRotator, LocalPos, EntryScaleVec);
+}

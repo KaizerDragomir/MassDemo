@@ -10,7 +10,10 @@
 
 class UBoxComponent;
 class UStaticMeshComponent;
+class UInstancedStaticMeshComponent;
 class UWorldGridComponent;
+class UMaterialInterface;
+struct FPlacedBuilding;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnWorldCollisionEvent, AWanderingWorldActor*, ThisWorld, AWanderingWorldActor*, OtherWorld);
 
@@ -40,6 +43,14 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UStaticMeshComponent> BaseMeshComponent;
 
+	/** Building visual instances (obstacle cubes) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<UInstancedStaticMeshComponent> BuildingVisualComponent;
+
+	/** Entry visual instances (walkable entrance cubes/markers) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<UInstancedStaticMeshComponent> EntryVisualComponent;
+
 	/** Collision Box for detecting world-to-world impacts */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UBoxComponent> CollisionBoxComponent;
@@ -47,6 +58,52 @@ public:
 	/** Local World Grid Component */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UWorldGridComponent> WorldGridComponent;
+
+	// --- Visual Settings ---
+
+	/** Static mesh used for building blocks (default Engine Cube) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Visual")
+	TObjectPtr<UStaticMesh> BuildingMesh;
+
+	/** Static mesh used for building entries (default Engine Cube) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Visual")
+	TObjectPtr<UStaticMesh> EntryMesh;
+
+	/** Material override for building blocks */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Visual")
+	TObjectPtr<UMaterialInterface> BuildingMaterial;
+
+	/** Material override for building entries */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Visual")
+	TObjectPtr<UMaterialInterface> EntryMaterial;
+
+	/** Material override for the base floating platform */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Visual")
+	TObjectPtr<UMaterialInterface> BaseMeshMaterial;
+
+	/** Height of building obstacle cubes in cm */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Visual")
+	float BuildingHeight = 100.0f;
+
+	/** Height of building entry markers in cm */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Visual")
+	float EntryHeight = 20.0f;
+
+	/** Block scale factor relative to CellSize (e.g. 0.95 gives subtle grid gaps) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Visual")
+	float BuildingBlockScale = 0.95f;
+
+	/** Entry scale factor relative to CellSize */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Visual")
+	float EntryBlockScale = 0.8f;
+
+	/** Whether to automatically visualize building obstacles with cube geometry */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Visual")
+	bool bVisualizeBuildings = true;
+
+	/** Whether to visualize building entry points */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Visual")
+	bool bVisualizeEntries = true;
 
 	// --- Movement Settings ---
 
@@ -126,6 +183,32 @@ public:
 		int32 OtherBodyIndex,
 		bool bFromSweep,
 		const FHitResult& SweepResult);
+
+	// --- Visual Building Methods ---
+
+	/** Rebuilds all building cube visual instances from the WorldGridComponent placed buildings */
+	UFUNCTION(BlueprintCallable, Category = "MassWorld|Visual")
+	void RebuildBuildingVisuals();
+
+	/** Adds cube instances for a single placed building */
+	UFUNCTION(BlueprintCallable, Category = "MassWorld|Visual")
+	void AddBuildingVisual(const FPlacedBuilding& Building);
+
+	/** Clears all building cube visual instances */
+	UFUNCTION(BlueprintCallable, Category = "MassWorld|Visual")
+	void ClearBuildingVisuals();
+
+	/** Updates the base platform mesh scale and position to match current grid dimensions */
+	UFUNCTION(BlueprintCallable, Category = "MassWorld|Visual")
+	void UpdateBaseMeshVisual();
+
+	/** Callback when WorldGridComponent completes grid initialization */
+	UFUNCTION()
+	void HandleGridInitialized();
+
+	/** Callback when a new building is dynamically placed on WorldGridComponent */
+	UFUNCTION()
+	void HandleBuildingAdded(const FPlacedBuilding& NewBuilding);
 
 	/** Gets all entity handles belonging to this world */
 	const TArray<FMassEntityHandle>& GetSpawnedEntities() const { return SpawnedEntities; }
