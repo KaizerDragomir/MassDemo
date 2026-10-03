@@ -21,6 +21,7 @@ public class MassDemo : ModuleRules
 			"Niagara",
 			"UMG",
 			"Slate",
+			"MassCore",
 			"MassEntity",
 			"MassCommon",
 			"MassSignals",
