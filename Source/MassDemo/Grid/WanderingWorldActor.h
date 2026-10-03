@@ -51,6 +51,10 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UInstancedStaticMeshComponent> EntryVisualComponent;
 
+	/** Unit visual instances (sphere primitives) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<UInstancedStaticMeshComponent> UnitVisualComponent;
+
 	/** Collision Box for detecting world-to-world impacts */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UBoxComponent> CollisionBoxComponent;
@@ -80,6 +84,30 @@ public:
 	/** Material override for the base floating platform */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Visual")
 	TObjectPtr<UMaterialInterface> BaseMeshMaterial;
+
+	/** Static mesh used for units (default Engine Sphere) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Visual")
+	TObjectPtr<UStaticMesh> UnitMesh;
+
+	/** Material override for normal units */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Visual")
+	TObjectPtr<UMaterialInterface> UnitMaterial;
+
+	/** Material override for stunned units */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Visual")
+	TObjectPtr<UMaterialInterface> StunnedUnitMaterial;
+
+	/** Unit visual sphere scale relative to standard mesh size (default 0.35 gives 35cm diameter sphere) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Visual")
+	float UnitScale = 0.35f;
+
+	/** Height offset for unit spheres above the grid floor in cm */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Visual")
+	float UnitZOffset = 25.0f;
+
+	/** Whether to automatically visualize units with sphere primitives */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Visual")
+	bool bVisualizeUnits = true;
 
 	/** Height of building obstacle cubes in cm */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Visual")
@@ -197,6 +225,18 @@ public:
 	/** Clears all building cube visual instances */
 	UFUNCTION(BlueprintCallable, Category = "MassWorld|Visual")
 	void ClearBuildingVisuals();
+
+	/** Rebuilds all unit sphere visual instances */
+	UFUNCTION(BlueprintCallable, Category = "MassWorld|Visual")
+	void RebuildUnitVisuals();
+
+	/** Updates unit sphere instance transforms from current Mass entity locations */
+	UFUNCTION(BlueprintCallable, Category = "MassWorld|Visual")
+	void UpdateUnitVisuals();
+
+	/** Clears all unit sphere visual instances */
+	UFUNCTION(BlueprintCallable, Category = "MassWorld|Visual")
+	void ClearUnitVisuals();
 
 	/** Updates the base platform mesh scale and position to match current grid dimensions */
 	UFUNCTION(BlueprintCallable, Category = "MassWorld|Visual")

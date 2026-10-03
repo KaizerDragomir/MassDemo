@@ -260,3 +260,21 @@ FTransform UMassGridBuildingLibrary::CalculateBuildingEntryTransform(
 
 	return FTransform(FRotator::ZeroRotator, LocalPos, EntryScaleVec);
 }
+
+FTransform UMassGridBuildingLibrary::CalculateUnitTransform(
+	const FVector& LocalPosition,
+	float UnitZOffset,
+	float UnitScale,
+	bool bIsStunned)
+{
+	FVector Pos = LocalPosition;
+	Pos.Z += UnitZOffset;
+
+	FVector Scale = FVector(UnitScale);
+	if (bIsStunned)
+	{
+		Scale = FVector(UnitScale * 1.2f, UnitScale * 1.2f, UnitScale * 0.6f);
+	}
+
+	return FTransform(FRotator::ZeroRotator, Pos, Scale);
+}

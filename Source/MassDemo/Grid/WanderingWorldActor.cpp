@@ -4,6 +4,7 @@
 #include "Grid/WorldGridComponent.h"
 #include "Grid/MassGridFragments.h"
 #include "Grid/MassGridSubsystem.h"
+#include "Grid/MassGridBuilding.h"
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
@@ -39,6 +40,10 @@ AWanderingWorldActor::AWanderingWorldActor()
 	EntryVisualComponent->SetupAttachment(RootComponent);
 	EntryVisualComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
+	UnitVisualComponent = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("UnitVisualComponent"));
+	UnitVisualComponent->SetupAttachment(RootComponent);
+	UnitVisualComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMeshFinder(TEXT("/Engine/BasicShapes/Cube.Cube"));
 	if (CubeMeshFinder.Succeeded())
 	{
@@ -47,6 +52,13 @@ AWanderingWorldActor::AWanderingWorldActor()
 		BuildingVisualComponent->SetStaticMesh(BuildingMesh);
 		EntryVisualComponent->SetStaticMesh(EntryMesh);
 		BaseMeshComponent->SetStaticMesh(CubeMeshFinder.Object);
+	}
+
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMeshFinder(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+	if (SphereMeshFinder.Succeeded())
+	{
+		UnitMesh = SphereMeshFinder.Object;
+		UnitVisualComponent->SetStaticMesh(UnitMesh);
 	}
 
 	CollisionBoxComponent = CreateDefaultSubobject<UBoxComponent>(TEXT("CollisionBoxComponent"));
@@ -113,6 +125,11 @@ void AWanderingWorldActor::Tick(float DeltaSeconds)
 		}
 
 		SetActorLocation(NewLocation);
+	}
+
+	if (bVisualizeUnits && UnitVisualComponent && SpawnedEntities.Num() > 0)
+	{
+		UpdateUnitVisuals();
 	}
 }
 
@@ -276,12 +293,21 @@ void AWanderingWorldActor::SpawnGridEntities(int32 Count)
 
 		SpawnedEntities.Add(NewEntity);
 	}
+
+	if (bVisualizeUnits)
+	{
+		RebuildUnitVisuals();
+	}
 }
 
 void AWanderingWorldActor::HandleGridInitialized()
 {
 	UpdateBaseMeshVisual();
 	RebuildBuildingVisuals();
+	if (bVisualizeUnits)
+	{
+		RebuildUnitVisuals();
+	}
 }
 
 void AWanderingWorldActor::HandleBuildingAdded(const FPlacedBuilding& NewBuilding)
@@ -391,5 +417,123 @@ void AWanderingWorldActor::UpdateBaseMeshVisual()
 	if (CollisionBoxComponent)
 	{
 		CollisionBoxComponent->SetBoxExtent(FVector(FloorWidth * 0.5f + 100.0f, FloorHeight * 0.5f + 100.0f, 200.0f));
+	}
+}
+
+void AWanderingWorldActor::RebuildUnitVisuals()
+{
+	ClearUnitVisuals();
+
+	if (!bVisualizeUnits || !UnitVisualComponent)
+	{
+		return;
+	}
+
+	if (UnitMesh && UnitVisualComponent->GetStaticMesh() != UnitMesh)
+	{
+		UnitVisualComponent->SetStaticMesh(UnitMesh);
+	}
+	if (UnitMaterial && UnitVisualComponent)
+	{
+		UnitVisualComponent->SetMaterial(0, UnitMaterial);
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	UMassEntitySubsystem* EntitySubsystem = World->GetSubsystem<UMassEntitySubsystem>();
+	if (!EntitySubsystem)
+	{
+		return;
+	}
+
+	FMassEntityManager& EntityManager = EntitySubsystem->GetMutableEntityManager();
+
+	for (const FMassEntityHandle& EntityHandle : SpawnedEntities)
+	{
+		if (!EntityManager.IsEntityValid(EntityHandle))
+		{
+			continue;
+		}
+
+		FVector LocalPos = FVector::ZeroVector;
+		if (const FMassGridLocationFragment* LocFrag = EntityManager.GetFragmentDataPtr<FMassGridLocationFragment>(EntityHandle))
+		{
+			LocalPos = LocFrag->LocalPosition;
+		}
+
+		bool bIsStunned = false;
+		if (const FMassStunFragment* StunFrag = EntityManager.GetFragmentDataPtr<FMassStunFragment>(EntityHandle))
+		{
+			bIsStunned = StunFrag->bIsStunned;
+		}
+
+		const FTransform UnitTransform = UMassGridBuildingLibrary::CalculateUnitTransform(LocalPos, UnitZOffset, UnitScale, bIsStunned);
+		UnitVisualComponent->AddInstance(UnitTransform);
+	}
+}
+
+void AWanderingWorldActor::UpdateUnitVisuals()
+{
+	if (!bVisualizeUnits || !UnitVisualComponent)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	UMassEntitySubsystem* EntitySubsystem = World->GetSubsystem<UMassEntitySubsystem>();
+	if (!EntitySubsystem)
+	{
+		return;
+	}
+
+	FMassEntityManager& EntityManager = EntitySubsystem->GetMutableEntityManager();
+
+	if (UnitVisualComponent->GetInstanceCount() != SpawnedEntities.Num())
+	{
+		RebuildUnitVisuals();
+		return;
+	}
+
+	for (int32 i = 0; i < SpawnedEntities.Num(); ++i)
+	{
+		const FMassEntityHandle& EntityHandle = SpawnedEntities[i];
+		if (!EntityManager.IsEntityValid(EntityHandle))
+		{
+			continue;
+		}
+
+		FVector LocalPos = FVector::ZeroVector;
+		if (const FMassGridLocationFragment* LocFrag = EntityManager.GetFragmentDataPtr<FMassGridLocationFragment>(EntityHandle))
+		{
+			LocalPos = LocFrag->LocalPosition;
+		}
+
+		bool bIsStunned = false;
+		if (const FMassStunFragment* StunFrag = EntityManager.GetFragmentDataPtr<FMassStunFragment>(EntityHandle))
+		{
+			bIsStunned = StunFrag->bIsStunned;
+		}
+
+		const FTransform UnitTransform = UMassGridBuildingLibrary::CalculateUnitTransform(LocalPos, UnitZOffset, UnitScale, bIsStunned);
+		UnitVisualComponent->UpdateInstanceTransform(i, UnitTransform, false, false, true);
+	}
+
+	UnitVisualComponent->MarkRenderStateDirty();
+}
+
+void AWanderingWorldActor::ClearUnitVisuals()
+{
+	if (UnitVisualComponent)
+	{
+		UnitVisualComponent->ClearInstances();
 	}
 }

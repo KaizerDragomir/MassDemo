@@ -114,4 +114,12 @@ public:
 		float GridZOffset = 50.0f,
 		float EntryHeight = 20.0f,
 		float EntryScale = 0.8f);
+
+	/** Computes actor-local sphere instance transform for a unit given local position, Z offset, scale, and stun state */
+	UFUNCTION(BlueprintPure, Category = "MassGrid|Building")
+	static FTransform CalculateUnitTransform(
+		const FVector& LocalPosition,
+		float UnitZOffset = 25.0f,
+		float UnitScale = 0.35f,
+		bool bIsStunned = false);
 };
