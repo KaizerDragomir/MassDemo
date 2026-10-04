@@ -9,6 +9,14 @@
 
 class AWanderingWorldActor;
 
+UENUM(BlueprintType)
+enum class EUnitBehaviorState : uint8
+{
+	Idle = 0,
+	Wandering,
+	Interacting
+};
+
 /**
  * Fragment storing grid coordinates and local positions for Mass entities on a grid.
  */
@@ -59,7 +67,13 @@ struct MASSDEMO_API FMassPathFollowingFragment : public FMassFragment
 	UPROPERTY(EditAnywhere, Category = "MassGrid")
 	bool bHasActivePath = false;
 
-	void SetPath(TConstArrayView<FVector> InWaypoints)
+	UPROPERTY(EditAnywhere, Category = "MassGrid")
+	bool bNeedsReroute = false;
+
+	UPROPERTY(EditAnywhere, Category = "MassGrid")
+	bool bDestinationIsBuildingEntry = false;
+
+	void SetPath(TConstArrayView<FVector> InWaypoints, bool bIsBuildingEntry = false)
 	{
 		NumWaypoints = FMath::Min(InWaypoints.Num(), MaxWaypoints);
 		for (int32 i = 0; i < NumWaypoints; ++i)
@@ -68,6 +82,8 @@ struct MASSDEMO_API FMassPathFollowingFragment : public FMassFragment
 		}
 		CurrentWaypointIndex = NumWaypoints > 1 ? 1 : 0;
 		bHasActivePath = NumWaypoints > 0;
+		bNeedsReroute = false;
+		bDestinationIsBuildingEntry = bIsBuildingEntry;
 	}
 
 	void ClearPath()
@@ -75,6 +91,16 @@ struct MASSDEMO_API FMassPathFollowingFragment : public FMassFragment
 		NumWaypoints = 0;
 		CurrentWaypointIndex = 0;
 		bHasActivePath = false;
+		bNeedsReroute = false;
+		bDestinationIsBuildingEntry = false;
+	}
+
+	void InvalidateForReroute()
+	{
+		NumWaypoints = 0;
+		CurrentWaypointIndex = 0;
+		bHasActivePath = false;
+		bNeedsReroute = true;
 	}
 
 	bool HasReachedDestination() const
@@ -126,12 +152,15 @@ struct MASSDEMO_API FMassStunFragment : public FMassFragment
 };
 
 /**
- * Fragment controlling idle & wander decision timers.
+ * Fragment controlling idle & wander decision timers and high-level unit state.
  */
 USTRUCT()
 struct MASSDEMO_API FMassUnitBehaviorFragment : public FMassFragment
 {
 	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, Category = "MassGrid")
+	EUnitBehaviorState State = EUnitBehaviorState::Idle;
 
 	UPROPERTY(EditAnywhere, Category = "MassGrid")
 	float IdleTimeRemaining = 1.0f;
@@ -142,8 +171,66 @@ struct MASSDEMO_API FMassUnitBehaviorFragment : public FMassFragment
 	UPROPERTY(EditAnywhere, Category = "MassGrid")
 	float MaxIdleTime = 3.0f;
 
+	UPROPERTY(EditAnywhere, Category = "MassGrid")
+	bool bTargetingBuildingEntry = false;
+
+	UPROPERTY(EditAnywhere, Category = "MassGrid")
+	int32 TargetBuildingId = INDEX_NONE;
+
 	void ResetIdleTimer()
 	{
 		IdleTimeRemaining = FMath::RandRange(MinIdleTime, MaxIdleTime);
+		State = EUnitBehaviorState::Idle;
+	}
+};
+
+/**
+ * Fragment tracking unit interactions with building entry points (cargo drop, services).
+ */
+USTRUCT()
+struct MASSDEMO_API FMassUnitInteractionFragment : public FMassFragment
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, Category = "MassGrid")
+	float InteractionTimeRemaining = 0.0f;
+
+	UPROPERTY(EditAnywhere, Category = "MassGrid")
+	float DefaultInteractionDuration = 2.0f;
+
+	UPROPERTY(EditAnywhere, Category = "MassGrid")
+	int32 CargoCount = 0;
+
+	UPROPERTY(EditAnywhere, Category = "MassGrid")
+	int32 TotalInteractions = 0;
+
+	UPROPERTY(EditAnywhere, Category = "MassGrid")
+	int32 InteractingBuildingId = INDEX_NONE;
+
+	void StartInteraction(float Duration = 2.0f, int32 InBuildingId = INDEX_NONE)
+	{
+		InteractionTimeRemaining = Duration > 0.0f ? Duration : DefaultInteractionDuration;
+		InteractingBuildingId = InBuildingId;
+	}
+
+	bool StepInteraction(float DeltaTime)
+	{
+		if (InteractionTimeRemaining > 0.0f)
+		{
+			InteractionTimeRemaining -= DeltaTime;
+			if (InteractionTimeRemaining <= 0.0f)
+			{
+				InteractionTimeRemaining = 0.0f;
+				CargoCount++;
+				TotalInteractions++;
+				return true; // Interaction completed
+			}
+		}
+		return false;
+	}
+
+	bool IsInteracting() const
+	{
+		return InteractionTimeRemaining > 0.0f;
 	}
 };

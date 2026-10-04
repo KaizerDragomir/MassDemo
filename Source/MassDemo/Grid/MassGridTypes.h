@@ -225,4 +225,55 @@ struct MASSDEMO_API FWorldGridData
 		OutCoord = WalkableCoords[RandIndex];
 		return true;
 	}
+
+	bool GetRandomBuildingEntry(FGridCoord& OutCoord) const
+	{
+		TArray<FGridCoord> EntryCoords;
+		for (const FGridCell& Cell : Cells)
+		{
+			if (Cell.CellType == EGridCellType::BuildingEntry)
+			{
+				EntryCoords.Add(Cell.Coord);
+			}
+		}
+
+		if (EntryCoords.Num() == 0)
+		{
+			return false;
+		}
+
+		const int32 RandIndex = FMath::RandRange(0, EntryCoords.Num() - 1);
+		OutCoord = EntryCoords[RandIndex];
+		return true;
+	}
+
+	bool TryIncrementOccupancy(const FGridCoord& Coord, int32 MaxAllowedOccupancy = 1)
+	{
+		if (FGridCell* Cell = GetCell(Coord))
+		{
+			if (Cell->IsWalkable() && Cell->OccupancyCount < MaxAllowedOccupancy)
+			{
+				Cell->OccupancyCount++;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	void DecrementOccupancy(const FGridCoord& Coord)
+	{
+		if (FGridCell* Cell = GetCell(Coord))
+		{
+			Cell->OccupancyCount = FMath::Max(0, Cell->OccupancyCount - 1);
+		}
+	}
+
+	int32 GetOccupancy(const FGridCoord& Coord) const
+	{
+		if (const FGridCell* Cell = GetCell(Coord))
+		{
+			return Cell->OccupancyCount;
+		}
+		return 0;
+	}
 };

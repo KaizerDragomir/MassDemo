@@ -102,6 +102,21 @@ void AWanderingWorldActor::Tick(float DeltaSeconds)
 		CollisionCooldownTimer -= DeltaSeconds;
 	}
 
+	// Dynamic building spawning over time
+	if (bEnableDynamicBuildingSpawning && WorldGridComponent)
+	{
+		DynamicBuildingTimer += DeltaSeconds;
+		if (DynamicBuildingTimer >= DynamicBuildingSpawnInterval)
+		{
+			DynamicBuildingTimer = 0.0f;
+			if (WorldGridComponent->GetPlacedBuildings().Num() < MaxDynamicBuildings)
+			{
+				FPlacedBuilding SpawnedBuilding;
+				SpawnRuntimeBuilding(SpawnedBuilding);
+			}
+		}
+	}
+
 	if (bEnableMovement)
 	{
 		FVector CurrentLocation = GetActorLocation();
@@ -131,6 +146,17 @@ void AWanderingWorldActor::Tick(float DeltaSeconds)
 	{
 		UpdateUnitVisuals();
 	}
+}
+
+bool AWanderingWorldActor::SpawnRuntimeBuilding(FPlacedBuilding& OutBuilding)
+{
+	if (!WorldGridComponent)
+	{
+		return false;
+	}
+
+	const bool bSuccess = WorldGridComponent->SpawnAdditionalBuilding(OutBuilding);
+	return bSuccess;
 }
 
 int32 AWanderingWorldActor::GetGridId() const
@@ -248,6 +274,7 @@ void AWanderingWorldActor::SpawnGridEntities(int32 Count)
 		FMassWorldReferenceFragment::StaticStruct(),
 		FMassStunFragment::StaticStruct(),
 		FMassUnitBehaviorFragment::StaticStruct(),
+		FMassUnitInteractionFragment::StaticStruct(),
 		FTransformFragment::StaticStruct()
 	};
 
@@ -287,6 +314,11 @@ void AWanderingWorldActor::SpawnGridEntities(int32 Count)
 
 		FMassUnitBehaviorFragment& BehaviorFrag = EntityManager.GetFragmentDataChecked<FMassUnitBehaviorFragment>(NewEntity);
 		BehaviorFrag.ResetIdleTimer();
+
+		FMassUnitInteractionFragment& InteractionFrag = EntityManager.GetFragmentDataChecked<FMassUnitInteractionFragment>(NewEntity);
+		InteractionFrag.InteractionTimeRemaining = 0.0f;
+		InteractionFrag.CargoCount = 0;
+		InteractionFrag.TotalInteractions = 0;
 
 		FTransformFragment& TransformFrag = EntityManager.GetFragmentDataChecked<FTransformFragment>(NewEntity);
 		TransformFrag.SetTransform(FTransform(FRotator::ZeroRotator, WorldPos));

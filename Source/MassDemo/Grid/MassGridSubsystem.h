@@ -32,6 +32,9 @@ public:
 	FWorldGridData* GetGridData(int32 GridId);
 	const FWorldGridData* GetGridData(int32 GridId) const;
 
+	/** Alias for GetGridData */
+	FORCEINLINE FWorldGridData* GetMutableGridData(int32 GridId) { return GetGridData(GridId); }
+
 	/** Returns all registered grid IDs */
 	UFUNCTION(BlueprintPure, Category = "MassGrid|Subsystem")
 	TArray<int32> GetAllGridIds() const;

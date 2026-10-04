@@ -89,16 +89,44 @@ The system consists of independent "moving worlds" (floating masses/cubes) in 3D
 
 ---
 
-## 4. Part 3 Scope & Improvements
-- **Performance Benchmarks & Tuning**:
-  - Compare density: 10–20 units on $10 \times 15$ grid vs. 50–100+ units on $25 \times 25$ grid.
-- **Dynamic Building Spawning**:
-  - Spawn additional Tetris blockers over time at runtime, triggering dynamic path rerouting.
-- **Unit Avoidance & Interaction**:
-  - Unit-to-unit local cell reservation / basic steering.
-  - Building entry interactions (cargo drop, service cooldown, etc.).
+## 4. Completed Architecture (Part 3: Dynamic Spawning, Rerouting, Interactions & Benchmarks)
+
+### 4.1. Dynamic Building Spawning & Rerouting
+- **`AWanderingWorldActor` / `UWorldGridComponent`**:
+  - `bEnableDynamicBuildingSpawning`, `DynamicBuildingSpawnInterval`, `MaxDynamicBuildings`, and `SpawnRuntimeBuilding()`.
+  - Automatically spawns additional Tetris shapes at runtime and updates visual cube instances.
+- **Dynamic Path Rerouting**:
+  - `UMassGridPathfinderLibrary::IsPathValid()` checks path validity against current grid state.
+  - `UMassGridMovementProcessor` detects blocked waypoints and sets `PathFrag.InvalidateForReroute()`.
+  - `UMassGridWanderBehaviorProcessor` immediately re-plans paths around new obstacles using avoidance pathfinding.
+
+### 4.2. Unit Cell Reservation & Avoidance
+- **`FWorldGridData`**:
+  - `TryIncrementOccupancy()`, `DecrementOccupancy()`, `GetOccupancy()`.
+  - Tracks real-time unit density per cell.
+- **`UMassGridPathfinderLibrary::FindPathWithAvoidance()`**:
+  - Evaluates cell occupancy penalty during A* search to naturally steer units away from crowded bottlenecks.
+
+### 4.3. Building Entry Interactions
+- **`FMassUnitInteractionFragment`**:
+  - Tracks `InteractionTimeRemaining`, `CargoCount`, `TotalInteractions`, and `InteractingBuildingId`.
+- **`UMassGridInteractionProcessor`**:
+  - Steps interaction countdown at building entrances (`BuildingEntry`).
+  - Increments cargo/service statistics and cycles units back to `Idle` upon completion.
+- **`EUnitBehaviorState`**:
+  - Clean state transitions: `Idle` $\rightarrow$ `Wandering` $\rightarrow$ `Interacting` $\rightarrow$ `Idle`.
+
+### 4.4. Performance Benchmarks & Testing
+- **Automation Test Suite (`Source/MassDemo/Tests/MassPart3Tests.cpp`)**:
+  - `MassDemo.Part3.DynamicBuildingSpawning`: Tests runtime obstacle spawning and cell updates.
+  - `MassDemo.Part3.DynamicRerouting`: Tests obstacle detection and dynamic rerouting.
+  - `MassDemo.Part3.UnitOccupancyAndAvoidance`: Tests occupancy reservations and avoidance pathfinding.
+  - `MassDemo.Part3.BuildingEntryInteraction`: Tests full interaction lifecycle and cargo counting.
+  - `MassDemo.Part3.DensityAndScaleBenchmark`: Benchmarks 20 units on $10 \times 15$ grid vs. 100 units on $25 \times 25$ grid.
 
 ---
 
-## 5. Quick Reference for Next Session Prompt
-> *"We have completed Part 1 of the MASS Demo. Using the architecture in `Grid/MassGrid*.h`, let's begin Part 2: Wandering World Actors, Mass Entity Fragments, Mass Processors (Wander, Movement, Stun), and Collision Signal Handling."*
+## 5. Summary of Completed Phases
+- **Part 1**: Core 2D Grid, Tetris Generator, A* Pathfinder, Multi-Grid Subsystem.
+- **Part 2**: WanderingWorldActor, Mass Entity Fragments, Movement/Wander/Stun Processors, Collision Signal Subsystem, Visualizers.
+- **Part 3**: Dynamic Obstacle Spawning, Dynamic Path Rerouting, Unit Avoidance & Cell Reservation, Building Entry Interactions (Cargo/Service), Scale Benchmarks & Automation Tests.

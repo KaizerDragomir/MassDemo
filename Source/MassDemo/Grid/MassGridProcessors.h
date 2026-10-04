@@ -68,6 +68,25 @@ private:
 };
 
 /**
+ * Processor responsible for building entrance interactions (cargo handling, service timer).
+ */
+UCLASS()
+class MASSDEMO_API UMassGridInteractionProcessor : public UMassProcessor
+{
+	GENERATED_BODY()
+
+public:
+	UMassGridInteractionProcessor();
+
+protected:
+	virtual void ConfigureQueries(const TSharedRef<FMassEntityManager>& EntityManager) override;
+	virtual void Execute(FMassEntityManager& EntityManager, FMassExecutionContext& Context) override;
+
+private:
+	FMassEntityQuery EntityQuery;
+};
+
+/**
  * Signal processor handling WorldCollision signals to apply stun to all affected entities.
  */
 UCLASS()

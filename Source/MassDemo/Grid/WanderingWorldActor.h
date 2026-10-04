@@ -181,6 +181,24 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|Grid")
 	float GridCellSize = 100.0f;
 
+	// --- Dynamic Building Spawning Settings ---
+
+	/** Whether to dynamically spawn additional obstacle buildings over time */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|DynamicBuildings")
+	bool bEnableDynamicBuildingSpawning = false;
+
+	/** Interval in seconds between dynamic building spawns */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|DynamicBuildings")
+	float DynamicBuildingSpawnInterval = 10.0f;
+
+	/** Maximum total buildings allowed when dynamically spawning */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MassWorld|DynamicBuildings")
+	int32 MaxDynamicBuildings = 8;
+
+	/** Attempts to spawn a new building at runtime and update visual instances */
+	UFUNCTION(BlueprintCallable, Category = "MassWorld|DynamicBuildings")
+	bool SpawnRuntimeBuilding(FPlacedBuilding& OutBuilding);
+
 	// --- Collision Notification ---
 
 	UPROPERTY(BlueprintAssignable, Category = "MassWorld|Events")
@@ -258,4 +276,5 @@ private:
 	TArray<FMassEntityHandle> SpawnedEntities;
 
 	float CollisionCooldownTimer = 0.0f;
+	float DynamicBuildingTimer = 0.0f;
 };

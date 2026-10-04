@@ -36,14 +36,14 @@ void UMassGridWanderBehaviorProcessor::ConfigureQueries(const TSharedRef<FMassEn
 void UMassGridWanderBehaviorProcessor::Execute(FMassEntityManager& EntityManager, FMassExecutionContext& Context)
 {
 	const float DeltaTime = Context.GetDeltaTimeSeconds();
-	UMassGridSubsystem* GridSubsystem = Context.GetMutableSubsystem<UMassGridSubsystem>();
+	const UMassGridSubsystem* GridSubsystem = Context.GetSubsystem<UMassGridSubsystem>();
 
 	if (!GridSubsystem)
 	{
 		return;
 	}
 
-	EntityQuery.ForEachEntityChunk(Context, [this, DeltaTime, GridSubsystem](FMassExecutionContext& ChunkContext)
+	EntityQuery.ForEachEntityChunk(Context, [DeltaTime, GridSubsystem](FMassExecutionContext& ChunkContext)
 	{
 		const int32 NumEntities = ChunkContext.GetNumEntities();
 		const TArrayView<FMassUnitBehaviorFragment> BehaviorList = ChunkContext.GetMutableFragmentView<FMassUnitBehaviorFragment>();
@@ -60,41 +60,115 @@ void UMassGridWanderBehaviorProcessor::Execute(FMassEntityManager& EntityManager
 				continue;
 			}
 
+			FMassUnitBehaviorFragment& BehaviorFrag = BehaviorList[i];
+			if (BehaviorFrag.State == EUnitBehaviorState::Interacting)
+			{
+				continue;
+			}
+
+			const FMassWorldReferenceFragment& WorldRefFrag = WorldRefList[i];
+			const FWorldGridData* GridData = GridSubsystem->GetGridData(WorldRefFrag.GridId);
+			if (!GridData)
+			{
+				continue;
+			}
+
 			FMassPathFollowingFragment& PathFrag = PathList[i];
+			FMassGridLocationFragment& LocFrag = LocationList[i];
+
+			// Handle dynamic reroute request (e.g. active path became blocked by a newly spawned building)
+			if (PathFrag.bNeedsReroute)
+			{
+				TArray<FGridCoord> CoordPath;
+				bool bRerouteFound = false;
+
+				// First attempt: try reaching previous TargetCoord if it is still walkable
+				if (GridData->IsWalkable(LocFrag.TargetCoord))
+				{
+					bRerouteFound = UMassGridPathfinderLibrary::FindPathWithAvoidance(*GridData, LocFrag.CurrentCoord, LocFrag.TargetCoord, CoordPath);
+				}
+
+				// If previous target is now blocked or unreachable, choose a new walkable cell
+				if (!bRerouteFound)
+				{
+					FGridCoord NewTarget;
+					if (GridData->GetRandomWalkableCell(NewTarget))
+					{
+						LocFrag.TargetCoord = NewTarget;
+						bRerouteFound = UMassGridPathfinderLibrary::FindPathWithAvoidance(*GridData, LocFrag.CurrentCoord, NewTarget, CoordPath);
+					}
+				}
+
+				if (bRerouteFound && CoordPath.Num() > 1)
+				{
+					TArray<FVector> CalculatedWaypoints;
+					UMassGridPathfinderLibrary::ConvertPathToLocalPositions(*GridData, CoordPath, CalculatedWaypoints, 50.0f);
+					const bool bIsEntry = GridData->GetCell(LocFrag.TargetCoord) && GridData->GetCell(LocFrag.TargetCoord)->CellType == EGridCellType::BuildingEntry;
+					PathFrag.SetPath(CalculatedWaypoints, bIsEntry);
+					BehaviorFrag.State = EUnitBehaviorState::Wandering;
+				}
+				else
+				{
+					PathFrag.ClearPath();
+					BehaviorFrag.ResetIdleTimer();
+				}
+				continue;
+			}
+
 			if (PathFrag.bHasActivePath)
 			{
 				continue;
 			}
 
-			FMassUnitBehaviorFragment& BehaviorFrag = BehaviorList[i];
+			// Countdown idle timer
 			BehaviorFrag.IdleTimeRemaining -= DeltaTime;
 
 			if (BehaviorFrag.IdleTimeRemaining <= 0.0f)
 			{
-				BehaviorFrag.ResetIdleTimer();
+				FGridCoord TargetCoord;
+				bool bTargetFound = false;
+				bool bIsBuildingEntry = false;
 
-				const FMassWorldReferenceFragment& WorldRefFrag = WorldRefList[i];
-				const FWorldGridData* GridData = GridSubsystem->GetGridData(WorldRefFrag.GridId);
-				if (!GridData)
+				// 40% chance to target a building entry if available
+				const bool bTryBuilding = FMath::RandRange(1, 100) <= 40;
+				if (bTryBuilding && GridData->GetRandomBuildingEntry(TargetCoord))
 				{
-					continue;
+					bTargetFound = true;
+					bIsBuildingEntry = true;
+				}
+				else if (GridData->GetRandomWalkableCell(TargetCoord))
+				{
+					bTargetFound = true;
+					bIsBuildingEntry = false;
 				}
 
-				FMassGridLocationFragment& LocFrag = LocationList[i];
-				FGridCoord TargetCoord;
-				if (GridData->GetRandomWalkableCell(TargetCoord))
+				if (bTargetFound)
 				{
 					TArray<FGridCoord> CoordPath;
-					if (UMassGridPathfinderLibrary::FindPath(*GridData, LocFrag.CurrentCoord, TargetCoord, CoordPath))
+					if (UMassGridPathfinderLibrary::FindPathWithAvoidance(*GridData, LocFrag.CurrentCoord, TargetCoord, CoordPath))
 					{
 						if (CoordPath.Num() > 1)
 						{
 							TArray<FVector> CalculatedWaypoints;
 							UMassGridPathfinderLibrary::ConvertPathToLocalPositions(*GridData, CoordPath, CalculatedWaypoints, 50.0f);
-							PathFrag.SetPath(CalculatedWaypoints);
+							PathFrag.SetPath(CalculatedWaypoints, bIsBuildingEntry);
 							LocFrag.TargetCoord = TargetCoord;
+							BehaviorFrag.State = EUnitBehaviorState::Wandering;
+							BehaviorFrag.bTargetingBuildingEntry = bIsBuildingEntry;
+						}
+						else
+						{
+							BehaviorFrag.ResetIdleTimer();
 						}
 					}
+					else
+					{
+						BehaviorFrag.ResetIdleTimer();
+					}
+				}
+				else
+				{
+					BehaviorFrag.ResetIdleTimer();
 				}
 			}
 		}
@@ -117,9 +191,11 @@ void UMassGridMovementProcessor::ConfigureQueries(const TSharedRef<FMassEntityMa
 	EntityQuery.AddRequirement<FMassPathFollowingFragment>(EMassFragmentAccess::ReadWrite);
 	EntityQuery.AddRequirement<FMassGridLocationFragment>(EMassFragmentAccess::ReadWrite);
 	EntityQuery.AddRequirement<FTransformFragment>(EMassFragmentAccess::ReadWrite);
+	EntityQuery.AddRequirement<FMassUnitBehaviorFragment>(EMassFragmentAccess::ReadWrite);
+	EntityQuery.AddRequirement<FMassUnitInteractionFragment>(EMassFragmentAccess::ReadWrite);
 	EntityQuery.AddRequirement<FMassWorldReferenceFragment>(EMassFragmentAccess::ReadOnly);
 	EntityQuery.AddRequirement<FMassStunFragment>(EMassFragmentAccess::ReadOnly);
-	EntityQuery.AddSubsystemRequirement<UMassGridSubsystem>(EMassFragmentAccess::ReadOnly);
+	EntityQuery.AddSubsystemRequirement<UMassGridSubsystem>(EMassFragmentAccess::ReadWrite);
 }
 
 void UMassGridMovementProcessor::Execute(FMassEntityManager& EntityManager, FMassExecutionContext& Context)
@@ -133,6 +209,8 @@ void UMassGridMovementProcessor::Execute(FMassEntityManager& EntityManager, FMas
 		const TArrayView<FMassPathFollowingFragment> PathList = ChunkContext.GetMutableFragmentView<FMassPathFollowingFragment>();
 		const TArrayView<FMassGridLocationFragment> LocationList = ChunkContext.GetMutableFragmentView<FMassGridLocationFragment>();
 		const TArrayView<FTransformFragment> TransformList = ChunkContext.GetMutableFragmentView<FTransformFragment>();
+		const TArrayView<FMassUnitBehaviorFragment> BehaviorList = ChunkContext.GetMutableFragmentView<FMassUnitBehaviorFragment>();
+		const TArrayView<FMassUnitInteractionFragment> InteractionList = ChunkContext.GetMutableFragmentView<FMassUnitInteractionFragment>();
 		const TConstArrayView<FMassWorldReferenceFragment> WorldRefList = ChunkContext.GetFragmentView<FMassWorldReferenceFragment>();
 		const TConstArrayView<FMassStunFragment> StunList = ChunkContext.GetFragmentView<FMassStunFragment>();
 
@@ -143,22 +221,39 @@ void UMassGridMovementProcessor::Execute(FMassEntityManager& EntityManager, FMas
 			FMassPathFollowingFragment& PathFrag = PathList[i];
 			FMassGridLocationFragment& LocFrag = LocationList[i];
 			FTransformFragment& TransformFrag = TransformList[i];
+			FMassUnitBehaviorFragment& BehaviorFrag = BehaviorList[i];
+			FMassUnitInteractionFragment& InteractionFrag = InteractionList[i];
 
 			AActor* WorldActor = WorldRefFrag.OwningWorldActor.Get();
 			const FTransform WorldActorTransform = WorldActor ? WorldActor->GetActorTransform() : FTransform::Identity;
 
-			// If stunned or no active path, keep world position synced with moving world actor
-			if (StunFrag.bIsStunned || !PathFrag.bHasActivePath || PathFrag.NumWaypoints == 0)
+			// If stunned, interacting, or no active path, keep world position synced with moving world actor
+			if (StunFrag.bIsStunned || BehaviorFrag.State == EUnitBehaviorState::Interacting || !PathFrag.bHasActivePath || PathFrag.NumWaypoints == 0)
 			{
 				const FVector WorldPos = WorldActorTransform.TransformPosition(LocFrag.LocalPosition);
 				TransformFrag.GetMutableTransform().SetTranslation(WorldPos);
 				continue;
 			}
 
+			FWorldGridData* GridData = GridSubsystem ? GridSubsystem->GetGridData(WorldRefFrag.GridId) : nullptr;
+
 			// Traverse waypoints
 			if (PathFrag.CurrentWaypointIndex < PathFrag.NumWaypoints)
 			{
 				const FVector TargetLocalPos = PathFrag.LocalWaypoints[PathFrag.CurrentWaypointIndex];
+
+				// Dynamic Obstacle Check: ensure the waypoint's cell is still walkable
+				if (GridData)
+				{
+					const FGridCoord NextWaypointCoord = GridData->LocalPositionToCell(TargetLocalPos);
+					if (!GridData->IsWalkable(NextWaypointCoord))
+					{
+						// Dynamic obstacle spawned on our path! Trigger reroute
+						PathFrag.InvalidateForReroute();
+						continue;
+					}
+				}
+
 				const FVector ToTarget = TargetLocalPos - LocFrag.LocalPosition;
 				const float Distance = ToTarget.Size();
 				const float StepDistance = PathFrag.MovementSpeed * DeltaTime;
@@ -168,18 +263,35 @@ void UMassGridMovementProcessor::Execute(FMassEntityManager& EntityManager, FMas
 					LocFrag.LocalPosition = TargetLocalPos;
 					PathFrag.CurrentWaypointIndex++;
 
-					if (GridSubsystem)
+					if (GridData)
 					{
-						if (const FWorldGridData* GridData = GridSubsystem->GetGridData(WorldRefFrag.GridId))
+						const FGridCoord OldCoord = LocFrag.CurrentCoord;
+						const FGridCoord NewCoord = GridData->LocalPositionToCell(LocFrag.LocalPosition);
+
+						if (OldCoord != NewCoord)
 						{
-							LocFrag.CurrentCoord = GridData->LocalPositionToCell(LocFrag.LocalPosition);
+							GridData->DecrementOccupancy(OldCoord);
+							GridData->TryIncrementOccupancy(NewCoord, 8);
+							LocFrag.CurrentCoord = NewCoord;
 						}
 					}
 
+					// Reached final waypoint
 					if (PathFrag.CurrentWaypointIndex >= PathFrag.NumWaypoints)
 					{
-						PathFrag.ClearPath();
 						LocFrag.CurrentCoord = LocFrag.TargetCoord;
+
+						if (PathFrag.bDestinationIsBuildingEntry)
+						{
+							BehaviorFrag.State = EUnitBehaviorState::Interacting;
+							InteractionFrag.StartInteraction(2.0f);
+						}
+						else
+						{
+							BehaviorFrag.ResetIdleTimer();
+						}
+
+						PathFrag.ClearPath();
 					}
 				}
 				else
@@ -229,6 +341,57 @@ void UMassStunProcessor::Execute(FMassEntityManager& EntityManager, FMassExecuti
 				if (StunFrag.StunTimeRemaining <= 0.0f)
 				{
 					StunFrag.ClearStun();
+				}
+			}
+		}
+	});
+}
+
+// ---------------------------------------------------------------------------
+// UMassGridInteractionProcessor
+// ---------------------------------------------------------------------------
+
+UMassGridInteractionProcessor::UMassGridInteractionProcessor()
+	: EntityQuery(*this)
+{
+	ExecutionFlags = (int32)EProcessorExecutionFlags::AllNetModes;
+	ExecutionOrder.ExecuteBefore.Add(UE::Mass::ProcessorGroupNames::Movement);
+}
+
+void UMassGridInteractionProcessor::ConfigureQueries(const TSharedRef<FMassEntityManager>& EntityManager)
+{
+	EntityQuery.AddRequirement<FMassUnitBehaviorFragment>(EMassFragmentAccess::ReadWrite);
+	EntityQuery.AddRequirement<FMassUnitInteractionFragment>(EMassFragmentAccess::ReadWrite);
+	EntityQuery.AddRequirement<FMassStunFragment>(EMassFragmentAccess::ReadOnly);
+}
+
+void UMassGridInteractionProcessor::Execute(FMassEntityManager& EntityManager, FMassExecutionContext& Context)
+{
+	const float DeltaTime = Context.GetDeltaTimeSeconds();
+
+	EntityQuery.ForEachEntityChunk(Context, [DeltaTime](FMassExecutionContext& ChunkContext)
+	{
+		const int32 NumEntities = ChunkContext.GetNumEntities();
+		const TArrayView<FMassUnitBehaviorFragment> BehaviorList = ChunkContext.GetMutableFragmentView<FMassUnitBehaviorFragment>();
+		const TArrayView<FMassUnitInteractionFragment> InteractionList = ChunkContext.GetMutableFragmentView<FMassUnitInteractionFragment>();
+		const TConstArrayView<FMassStunFragment> StunList = ChunkContext.GetFragmentView<FMassStunFragment>();
+
+		for (int32 i = 0; i < NumEntities; ++i)
+		{
+			const FMassStunFragment& StunFrag = StunList[i];
+			if (StunFrag.bIsStunned)
+			{
+				continue;
+			}
+
+			FMassUnitBehaviorFragment& BehaviorFrag = BehaviorList[i];
+			if (BehaviorFrag.State == EUnitBehaviorState::Interacting)
+			{
+				FMassUnitInteractionFragment& InteractionFrag = InteractionList[i];
+				const bool bCompleted = InteractionFrag.StepInteraction(DeltaTime);
+				if (bCompleted)
+				{
+					BehaviorFrag.ResetIdleTimer();
 				}
 			}
 		}
