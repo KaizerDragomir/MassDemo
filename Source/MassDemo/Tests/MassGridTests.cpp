@@ -91,6 +91,12 @@ bool FMassGridPathfindingTest::RunTest(const FString& Parameters)
 	const bool bPathFound = UMassGridPathfinderLibrary::FindPath(Grid, FGridCoord(0, 0), FGridCoord(3, 0), Path);
 	TestTrue(TEXT("Path from (0,0) to (3,0) should be found"), bPathFound);
 	TestEqual(TEXT("Path length should be 4 steps"), Path.Num(), 4);
+	TestTrue(TEXT("Generated straight path should be valid and contiguous"), UMassGridPathfinderLibrary::IsPathValid(Grid, Path));
+
+	TArray<FGridCoord> NonContiguousPath;
+	NonContiguousPath.Add(FGridCoord(0, 0));
+	NonContiguousPath.Add(FGridCoord(3, 0));
+	TestFalse(TEXT("Non-contiguous path should be invalid"), UMassGridPathfinderLibrary::IsPathValid(Grid, NonContiguousPath));
 
 	// Block cell (1, 0)
 	if (FGridCell* Cell = Grid.GetCell(1, 0))

@@ -43,6 +43,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid")
 	int32 InitialBuildingCount = 4;
 
+	/** Whether this component initializes itself on BeginPlay; actors can disable this and initialize explicitly */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid")
+	bool bAutoInitializeOnBeginPlay = false;
+
 	/** Automatically randomize grid dimensions near 10x15 on start if true */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grid")
 	bool bRandomizeDimensionsOnStart = true;

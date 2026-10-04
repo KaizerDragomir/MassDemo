@@ -325,9 +325,15 @@ bool UMassGridPathfinderLibrary::IsPathValid(const FWorldGridData& Grid, const T
 		return false;
 	}
 
-	for (const FGridCoord& Coord : Path)
+	for (int32 Index = 0; Index < Path.Num(); ++Index)
 	{
+		const FGridCoord& Coord = Path[Index];
 		if (!Grid.IsValidCoord(Coord) || !Grid.IsWalkable(Coord))
+		{
+			return false;
+		}
+
+		if (Index > 0 && FGridCoord::ManhattanDistance(Path[Index - 1], Coord) != 1)
 		{
 			return false;
 		}

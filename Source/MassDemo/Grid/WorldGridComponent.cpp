@@ -15,16 +15,23 @@ void UWorldGridComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
-	int32 ChosenWidth = GridWidth;
-	int32 ChosenHeight = GridHeight;
-
-	if (bRandomizeDimensionsOnStart)
+	if (bAutoInitializeOnBeginPlay)
 	{
-		ChosenWidth = FMath::RandRange(MinRandomDimension.X, MaxRandomDimension.X);
-		ChosenHeight = FMath::RandRange(MinRandomDimension.Y, MaxRandomDimension.Y);
-	}
+		int32 ChosenWidth = GridWidth;
+		int32 ChosenHeight = GridHeight;
 
-	InitializeGrid(ChosenWidth, ChosenHeight, CellSize, InitialBuildingCount);
+		if (bRandomizeDimensionsOnStart)
+		{
+			const int32 MinWidth = FMath::Min(MinRandomDimension.X, MaxRandomDimension.X);
+			const int32 MaxWidth = FMath::Max(MinRandomDimension.X, MaxRandomDimension.X);
+			const int32 MinHeight = FMath::Min(MinRandomDimension.Y, MaxRandomDimension.Y);
+			const int32 MaxHeight = FMath::Max(MinRandomDimension.Y, MaxRandomDimension.Y);
+			ChosenWidth = FMath::RandRange(MinWidth, MaxWidth);
+			ChosenHeight = FMath::RandRange(MinHeight, MaxHeight);
+		}
+
+		InitializeGrid(ChosenWidth, ChosenHeight, CellSize, InitialBuildingCount);
+	}
 
 	if (UWorld* World = GetWorld())
 	{

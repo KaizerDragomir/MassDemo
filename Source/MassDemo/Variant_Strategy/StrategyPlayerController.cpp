@@ -55,6 +55,48 @@ void AStrategyPlayerController::BeginPlay()
 
 }
 
+void AStrategyPlayerController::PlayerTick(float DeltaTime)
+{
+	Super::PlayerTick(DeltaTime);
+
+	if (IsLocalPlayerController())
+	{
+		// 1. Smooth Camera Zoom Interpolation
+		if (bEnableSmoothZoom && ControlledCameraPawn)
+		{
+			CameraZoom = FMath::FInterpTo(CameraZoom, TargetCameraZoom, DeltaTime, ZoomInterpSpeed);
+			ControlledCameraPawn->SetZoomModifier(CameraZoom);
+		}
+
+		// 2. Smooth Camera Rotation Interpolation
+		if (bEnableCameraRotation && ControlledCameraPawn)
+		{
+			CurrentYaw = FMath::FInterpTo(CurrentYaw, TargetYaw, DeltaTime, RotationInterpSpeed);
+			CurrentPitch = FMath::FInterpTo(CurrentPitch, TargetPitch, DeltaTime, RotationInterpSpeed);
+			ControlledCameraPawn->SetCameraRotation(FRotator(CurrentPitch, CurrentYaw, 0.0f));
+		}
+
+		// 3. Smooth Camera Focus on Selection / Target
+		if (bIsFocusing && ControlledCameraPawn)
+		{
+			FVector CurrentLoc = ControlledCameraPawn->GetActorLocation();
+			FVector NewLoc = FMath::VInterpTo(CurrentLoc, TargetFocusLocation, DeltaTime, FocusInterpSpeed);
+			ControlledCameraPawn->SetActorLocation(NewLoc);
+
+			if (FVector::DistSquared2D(NewLoc, TargetFocusLocation) < 25.0f)
+			{
+				bIsFocusing = false;
+			}
+		}
+
+		// 4. Edge Scrolling
+		ProcessEdgeScrolling(DeltaTime);
+
+		// 5. Constrain Camera Position within Map Bounds
+		ClampCameraToBounds();
+	}
+}
+
 void AStrategyPlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
@@ -83,10 +125,23 @@ void AStrategyPlayerController::SetupInputComponent()
 		// bind the input mappings
 		if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(InputComponent))
 		{
-			// Camera
+			// Camera Pan & Zoom
 			EnhancedInputComponent->BindAction(MoveCameraAction, ETriggerEvent::Triggered, this, &AStrategyPlayerController::MoveCamera);
 			EnhancedInputComponent->BindAction(ZoomCameraAction, ETriggerEvent::Triggered, this, &AStrategyPlayerController::ZoomCamera);
 			EnhancedInputComponent->BindAction(ResetCameraAction, ETriggerEvent::Triggered, this, &AStrategyPlayerController::ResetCamera);
+
+			// Camera Rotation & Focus & Speed
+			EnhancedInputComponent->BindAction(RotateCameraAction, ETriggerEvent::Triggered, this, &AStrategyPlayerController::RotateCamera);
+			EnhancedInputComponent->BindAction(FocusCameraAction, ETriggerEvent::Triggered, this, &AStrategyPlayerController::FocusCamera);
+			EnhancedInputComponent->BindAction(FastMoveModifierAction, ETriggerEvent::Started, this, &AStrategyPlayerController::FastMoveStarted);
+			EnhancedInputComponent->BindAction(FastMoveModifierAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::FastMoveCompleted);
+			EnhancedInputComponent->BindAction(FastMoveModifierAction, ETriggerEvent::Canceled, this, &AStrategyPlayerController::FastMoveCompleted);
+
+			// Middle Mouse Button Drag Panning
+			EnhancedInputComponent->BindAction(MMBPanAction, ETriggerEvent::Started, this, &AStrategyPlayerController::MMBPanStarted);
+			EnhancedInputComponent->BindAction(MMBPanAction, ETriggerEvent::Triggered, this, &AStrategyPlayerController::MMBPanTriggered);
+			EnhancedInputComponent->BindAction(MMBPanAction, ETriggerEvent::Completed, this, &AStrategyPlayerController::MMBPanCompleted);
+			EnhancedInputComponent->BindAction(MMBPanAction, ETriggerEvent::Canceled, this, &AStrategyPlayerController::MMBPanCompleted);
 
 			// Mouse Interaction
 			EnhancedInputComponent->BindAction(SelectHoldAction, ETriggerEvent::Started, this, &AStrategyPlayerController::SelectHoldStarted);
@@ -127,7 +182,15 @@ void AStrategyPlayerController::OnPossess(APawn* InPawn)
 	check(ControlledCameraPawn);
 
 	// set the zoom level from the pawn's camera
-	DefaultZoom = CameraZoom = ControlledCameraPawn->GetCamera()->OrthoWidth;
+	DefaultZoom = CameraZoom = TargetCameraZoom = ControlledCameraPawn->GetCamera()->OrthoWidth;
+
+	// set rotation from pawn camera
+	if (ControlledCameraPawn->GetCamera())
+	{
+		const FRotator CamRot = ControlledCameraPawn->GetCamera()->GetRelativeRotation();
+		DefaultYaw = CurrentYaw = TargetYaw = CamRot.Yaw;
+		DefaultPitch = CurrentPitch = TargetPitch = CamRot.Pitch;
+	}
 
 	// cast the HUD pointer
 	StrategyHUD = Cast<AStrategyHUD>(GetHUD());
@@ -191,22 +254,18 @@ void AStrategyPlayerController::MoveCamera(const FInputActionValue& Value)
 {
 	FVector2D InputVector = Value.Get<FVector2D>();
 
-	// get the forward input component vector
-	FRotator ForwardRot = GetControlRotation();
-	ForwardRot.Pitch = 0.0f;
-
-	// get the right input component vector
-	FRotator RightRot = GetControlRotation();
-	RightRot.Pitch = 0.0f;
-	RightRot.Roll = 0.0f;
-
-	// add the forward input
 	if (ControlledCameraPawn)
 	{
-		ControlledCameraPawn->AddMovementInput(ForwardRot.RotateVector(FVector::ForwardVector), InputVector.X + InputVector.Y);
+		bIsFocusing = false;
 
-		// add the right input
-		ControlledCameraPawn->AddMovementInput(RightRot.RotateVector(FVector::RightVector), InputVector.X - InputVector.Y);
+		const FRotator YawRot(0.0f, CurrentYaw, 0.0f);
+		const FVector ForwardDir = FRotationMatrix(YawRot).GetUnitAxis(EAxis::X);
+		const FVector RightDir = FRotationMatrix(YawRot).GetUnitAxis(EAxis::Y);
+
+		const float Multiplier = bIsFastPanActive ? FastPanMultiplier : 1.0f;
+
+		ControlledCameraPawn->AddMovementInput(ForwardDir, InputVector.Y * Multiplier);
+		ControlledCameraPawn->AddMovementInput(RightDir, InputVector.X * Multiplier);
 	}
 }
 
@@ -217,7 +276,62 @@ void AStrategyPlayerController::ZoomCamera(const FInputActionValue& Value)
 
 void AStrategyPlayerController::ResetCamera(const FInputActionValue& Value)
 {
-	DoCameraResetZoomCommand();
+	DoCameraResetAllCommand();
+}
+
+void AStrategyPlayerController::RotateCamera(const FInputActionValue& Value)
+{
+	const float DeltaTime = GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.016f;
+	const float YawDelta = Value.Get<float>() * KeyboardRotationSpeed * DeltaTime;
+	DoCameraRotateYawCommand(YawDelta);
+}
+
+void AStrategyPlayerController::FocusCamera(const FInputActionValue& Value)
+{
+	DoCameraFocusOnSelectionCommand();
+}
+
+void AStrategyPlayerController::FastMoveStarted(const FInputActionValue& Value)
+{
+	bIsFastPanActive = true;
+}
+
+void AStrategyPlayerController::FastMoveCompleted(const FInputActionValue& Value)
+{
+	bIsFastPanActive = false;
+}
+
+void AStrategyPlayerController::MMBPanStarted(const FInputActionValue& Value)
+{
+	bIsMMBPanning = true;
+	bIsFocusing = false;
+	LastMMBMousePosition = GetMouseLocationForPlayer();
+}
+
+void AStrategyPlayerController::MMBPanTriggered(const FInputActionValue& Value)
+{
+	if (bIsMMBPanning && ControlledCameraPawn)
+	{
+		const FVector2D CurrentMouse = GetMouseLocationForPlayer();
+		if (!CurrentMouse.IsNearlyZero() && !LastMMBMousePosition.IsNearlyZero())
+		{
+			const FVector2D MouseDelta = CurrentMouse - LastMMBMousePosition;
+			const FRotator YawRot(0.0f, CurrentYaw, 0.0f);
+			const FVector ForwardDir = FRotationMatrix(YawRot).GetUnitAxis(EAxis::X);
+			const FVector RightDir = FRotationMatrix(YawRot).GetUnitAxis(EAxis::Y);
+
+			// MMB pan moves camera in opposite direction of mouse drag
+			const FVector WorldDelta = (RightDir * (-MouseDelta.X) + ForwardDir * MouseDelta.Y) * MMBPanSensitivity;
+			ControlledCameraPawn->AddActorWorldOffset(WorldDelta);
+			ClampCameraToBounds();
+		}
+		LastMMBMousePosition = CurrentMouse;
+	}
+}
+
+void AStrategyPlayerController::MMBPanCompleted(const FInputActionValue& Value)
+{
+	bIsMMBPanning = false;
 }
 
 void AStrategyPlayerController::SelectHoldStarted(const FInputActionValue& Value)
@@ -483,19 +597,19 @@ void AStrategyPlayerController::DoCameraDragScrollCommand(const FVector2D& Curre
 {
 	// subtract the starting position from the cursor to find the on-screen movement delta
 	FVector2D MoveDelta = StartingDragScrollPosition - CurrentCursorPosition;
+	StartingDragScrollPosition = CurrentCursorPosition;
 
-	// rotate the movement delta to match the isometric perspective
-	const FRotator IsoRotation(0.0f, -45.0f, 0.0f);
+	const FRotator YawRot(0.0f, CurrentYaw, 0.0f);
+	const FVector ForwardDir = FRotationMatrix(YawRot).GetUnitAxis(EAxis::X);
+	const FVector RightDir = FRotationMatrix(YawRot).GetUnitAxis(EAxis::Y);
 
-	FVector RotatedDelta = IsoRotation.RotateVector(FVector(MoveDelta.X, MoveDelta.Y, 0.0f));
-
-	// apply drag
-	RotatedDelta *= DragMultiplier;
+	FVector RotatedDelta = (RightDir * MoveDelta.X - ForwardDir * MoveDelta.Y) * DragMultiplier;
 
 	// apply the offset to the camera pawn
 	if (ControlledCameraPawn)
 	{
 		ControlledCameraPawn->AddActorWorldOffset(RotatedDelta);
+		ClampCameraToBounds();
 	}
 }
 
@@ -528,40 +642,229 @@ void AStrategyPlayerController::DoMoveUnitsCommand(const FVector& GoalLocation)
 
 void AStrategyPlayerController::DoCameraModifyZoomCommand(float ZoomDelta)
 {
-	// add the delta
-	CameraZoom += ZoomDelta;
+	// add the delta to target zoom
+	TargetCameraZoom = FMath::Clamp(TargetCameraZoom + ZoomDelta, MinZoomLevel, MaxZoomLevel);
 
-	// clamp between min and max
-	CameraZoom = FMath::Clamp(CameraZoom, MinZoomLevel, MaxZoomLevel);
-
-	// set the zoom on the camera pawn
-	if (ControlledCameraPawn)
+	if (!bEnableSmoothZoom)
 	{
-		ControlledCameraPawn->SetZoomModifier(CameraZoom);
+		CameraZoom = TargetCameraZoom;
+		if (ControlledCameraPawn)
+		{
+			ControlledCameraPawn->SetZoomModifier(CameraZoom);
+		}
 	}
 }
 
 void AStrategyPlayerController::DoCameraResetZoomCommand()
 {
 	// reset to default zoom
-	CameraZoom = DefaultZoom;
+	TargetCameraZoom = DefaultZoom;
 
-	// set the zoom on the camera pawn
-	if (ControlledCameraPawn)
+	if (!bEnableSmoothZoom)
 	{
-		ControlledCameraPawn->SetZoomModifier(CameraZoom);
+		CameraZoom = TargetCameraZoom;
+		if (ControlledCameraPawn)
+		{
+			ControlledCameraPawn->SetZoomModifier(CameraZoom);
+		}
 	}
 }
 
 void AStrategyPlayerController::DoCameraSetZoomPercentageCommand(float Percentage)
 {
 	// lerp between min and max zoom
-	CameraZoom = FMath::Lerp(MinZoomLevel, MaxZoomLevel, FMath::Clamp(Percentage, 0.0f, 1.0f));
+	TargetCameraZoom = FMath::Lerp(MinZoomLevel, MaxZoomLevel, FMath::Clamp(Percentage, 0.0f, 1.0f));
 
-	// set the zoom on the camera pawn
-	if (ControlledCameraPawn)
+	if (!bEnableSmoothZoom)
 	{
-		ControlledCameraPawn->SetZoomModifier(CameraZoom);
+		CameraZoom = TargetCameraZoom;
+		if (ControlledCameraPawn)
+		{
+			ControlledCameraPawn->SetZoomModifier(CameraZoom);
+		}
+	}
+}
+
+void AStrategyPlayerController::DoCameraRotateYawCommand(float DeltaAngle)
+{
+	TargetYaw = FRotator::NormalizeAxis(TargetYaw + DeltaAngle);
+
+	if (!bEnableCameraRotation || RotationInterpSpeed <= 0.0f)
+	{
+		CurrentYaw = TargetYaw;
+		if (ControlledCameraPawn)
+		{
+			ControlledCameraPawn->SetCameraRotation(FRotator(CurrentPitch, CurrentYaw, 0.0f));
+		}
+	}
+}
+
+void AStrategyPlayerController::DoCameraRotatePitchCommand(float DeltaAngle)
+{
+	TargetPitch = FMath::Clamp(TargetPitch + DeltaAngle, MinPitchAngle, MaxPitchAngle);
+
+	if (!bEnableCameraRotation || RotationInterpSpeed <= 0.0f)
+	{
+		CurrentPitch = TargetPitch;
+		if (ControlledCameraPawn)
+		{
+			ControlledCameraPawn->SetCameraRotation(FRotator(CurrentPitch, CurrentYaw, 0.0f));
+		}
+	}
+}
+
+void AStrategyPlayerController::DoCameraResetRotationCommand()
+{
+	TargetYaw = DefaultYaw;
+	TargetPitch = DefaultPitch;
+
+	if (!bEnableCameraRotation || RotationInterpSpeed <= 0.0f)
+	{
+		CurrentYaw = TargetYaw;
+		CurrentPitch = TargetPitch;
+		if (ControlledCameraPawn)
+		{
+			ControlledCameraPawn->SetCameraRotation(FRotator(CurrentPitch, CurrentYaw, 0.0f));
+		}
+	}
+}
+
+void AStrategyPlayerController::DoCameraResetAllCommand()
+{
+	DoCameraResetZoomCommand();
+	DoCameraResetRotationCommand();
+}
+
+void AStrategyPlayerController::DoCameraFocusOnSelectionCommand()
+{
+	if (ControlledUnits.Num() == 0 || !ControlledCameraPawn)
+	{
+		return;
+	}
+
+	FVector Centroid = FVector::ZeroVector;
+	int32 ValidCount = 0;
+	for (AStrategyUnit* Unit : ControlledUnits)
+	{
+		if (IsValid(Unit))
+		{
+			Centroid += Unit->GetActorLocation();
+			ValidCount++;
+		}
+	}
+
+	if (ValidCount > 0)
+	{
+		Centroid /= ValidCount;
+		DoCameraFocusOnLocationCommand(Centroid);
+	}
+}
+
+void AStrategyPlayerController::DoCameraFocusOnLocationCommand(const FVector& TargetLocation, bool bInstant)
+{
+	if (!ControlledCameraPawn)
+	{
+		return;
+	}
+
+	FVector DesiredLoc = TargetLocation;
+	DesiredLoc.Z = ControlledCameraPawn->GetActorLocation().Z;
+
+	if (bInstant)
+	{
+		ControlledCameraPawn->SetActorLocation(DesiredLoc);
+		ClampCameraToBounds();
+		bIsFocusing = false;
+	}
+	else
+	{
+		TargetFocusLocation = DesiredLoc;
+		bIsFocusing = true;
+	}
+}
+
+void AStrategyPlayerController::ProcessEdgeScrolling(float DeltaTime)
+{
+	if (!bEnableEdgeScrolling || bIsMMBPanning || !ControlledCameraPawn)
+	{
+		return;
+	}
+
+	float MouseX = 0.0f;
+	float MouseY = 0.0f;
+	if (!GetMousePosition(MouseX, MouseY))
+	{
+		return;
+	}
+
+	int32 ViewportSizeX = 0;
+	int32 ViewportSizeY = 0;
+	GetViewportSize(ViewportSizeX, ViewportSizeY);
+
+	if (ViewportSizeX <= 0 || ViewportSizeY <= 0)
+	{
+		return;
+	}
+
+	// Check if cursor is within viewport bounds
+	if (MouseX < 0.0f || MouseX > ViewportSizeX || MouseY < 0.0f || MouseY > ViewportSizeY)
+	{
+		return;
+	}
+
+	FVector2D ScrollDir = FVector2D::ZeroVector;
+
+	if (MouseX <= EdgeScrollMargin && EdgeScrollMargin > 0.0f)
+	{
+		ScrollDir.X -= 1.0f - FMath::Clamp(MouseX / EdgeScrollMargin, 0.0f, 1.0f);
+	}
+	else if (MouseX >= ViewportSizeX - EdgeScrollMargin && EdgeScrollMargin > 0.0f)
+	{
+		ScrollDir.X += 1.0f - FMath::Clamp((ViewportSizeX - MouseX) / EdgeScrollMargin, 0.0f, 1.0f);
+	}
+
+	if (MouseY <= EdgeScrollMargin && EdgeScrollMargin > 0.0f)
+	{
+		ScrollDir.Y += 1.0f - FMath::Clamp(MouseY / EdgeScrollMargin, 0.0f, 1.0f);
+	}
+	else if (MouseY >= ViewportSizeY - EdgeScrollMargin && EdgeScrollMargin > 0.0f)
+	{
+		ScrollDir.Y -= 1.0f - FMath::Clamp((ViewportSizeY - MouseY) / EdgeScrollMargin, 0.0f, 1.0f);
+	}
+
+	if (!ScrollDir.IsNearlyZero())
+	{
+		bIsFocusing = false;
+		ScrollDir.Normalize();
+
+		const FRotator YawRot(0.0f, CurrentYaw, 0.0f);
+		const FVector ForwardDir = FRotationMatrix(YawRot).GetUnitAxis(EAxis::X);
+		const FVector RightDir = FRotationMatrix(YawRot).GetUnitAxis(EAxis::Y);
+
+		const float Speed = EdgeScrollSpeed * (bIsFastPanActive ? FastPanMultiplier : 1.0f);
+		const FVector MoveDelta = (RightDir * ScrollDir.X + ForwardDir * ScrollDir.Y) * Speed * DeltaTime;
+
+		ControlledCameraPawn->AddActorWorldOffset(MoveDelta);
+		ClampCameraToBounds();
+	}
+}
+
+void AStrategyPlayerController::ClampCameraToBounds()
+{
+	if (!bConstrainCameraToBounds || !ControlledCameraPawn)
+	{
+		return;
+	}
+
+	FVector CurrentLoc = ControlledCameraPawn->GetActorLocation();
+	const float ClampedX = FMath::Clamp(CurrentLoc.X, CameraBoundsMin.X, CameraBoundsMax.X);
+	const float ClampedY = FMath::Clamp(CurrentLoc.Y, CameraBoundsMin.Y, CameraBoundsMax.Y);
+
+	if (!FMath::IsNearlyEqual(ClampedX, CurrentLoc.X) || !FMath::IsNearlyEqual(ClampedY, CurrentLoc.Y))
+	{
+		CurrentLoc.X = ClampedX;
+		CurrentLoc.Y = ClampedY;
+		ControlledCameraPawn->SetActorLocation(CurrentLoc);
 	}
 }
 

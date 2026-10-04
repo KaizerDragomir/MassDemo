@@ -36,6 +36,25 @@ public:
 	/** Sets the camera zoom modifier value */
 	void SetZoomModifier(float Value);
 
+	/** Sets the camera rotation (Pitch, Yaw, Roll) */
+	UFUNCTION(BlueprintCallable, Category="Camera")
+	void SetCameraRotation(const FRotator& NewRotation);
+
+	/** Adds yaw input to camera */
+	UFUNCTION(BlueprintCallable, Category="Camera")
+	void AddCameraYaw(float AngleDelta);
+
+	/** Adds pitch input to camera */
+	UFUNCTION(BlueprintCallable, Category="Camera")
+	void AddCameraPitch(float AngleDelta);
+
+	/** Resets camera rotation to default */
+	UFUNCTION(BlueprintCallable, Category="Camera")
+	void ResetCameraRotation();
+
 	/** Returns the camera component */
 	UCameraComponent* GetCamera() const { return Camera; }
+
+	/** Returns the floating pawn movement component */
+	UFloatingPawnMovement* GetFloatingPawnMovement() const { return FloatingPawnMovement; }
 };

@@ -34,6 +34,55 @@ AStrategyPawn::AStrategyPawn()
 
 void AStrategyPawn::SetZoomModifier(float Value)
 {
-	// set the ortho width on the camera
-	Camera->SetOrthoWidth(Value);
+	if (Camera)
+	{
+		if (Camera->ProjectionMode == ECameraProjectionMode::Orthographic)
+		{
+			// set the ortho width on the camera
+			Camera->SetOrthoWidth(Value);
+		}
+		else
+		{
+			// In perspective projection, adjust relative height / distance
+			FVector CamLoc = Camera->GetRelativeLocation();
+			CamLoc.Z = Value;
+			Camera->SetRelativeLocation(CamLoc);
+		}
+	}
+}
+
+void AStrategyPawn::SetCameraRotation(const FRotator& NewRotation)
+{
+	if (Camera)
+	{
+		Camera->SetRelativeRotation(NewRotation);
+	}
+}
+
+void AStrategyPawn::AddCameraYaw(float AngleDelta)
+{
+	if (Camera)
+	{
+		FRotator Rot = Camera->GetRelativeRotation();
+		Rot.Yaw = FRotator::NormalizeAxis(Rot.Yaw + AngleDelta);
+		Camera->SetRelativeRotation(Rot);
+	}
+}
+
+void AStrategyPawn::AddCameraPitch(float AngleDelta)
+{
+	if (Camera)
+	{
+		FRotator Rot = Camera->GetRelativeRotation();
+		Rot.Pitch = FMath::Clamp(Rot.Pitch + AngleDelta, -85.0f, -10.0f);
+		Camera->SetRelativeRotation(Rot);
+	}
+}
+
+void AStrategyPawn::ResetCameraRotation()
+{
+	if (Camera)
+	{
+		Camera->SetRelativeRotation(FRotator(-45.0f, -45.0f, 0.0f));
+	}
 }

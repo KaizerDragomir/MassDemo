@@ -73,8 +73,15 @@ struct MASSDEMO_API FMassPathFollowingFragment : public FMassFragment
 	UPROPERTY(EditAnywhere, Category = "MassGrid")
 	bool bDestinationIsBuildingEntry = false;
 
-	void SetPath(TConstArrayView<FVector> InWaypoints, bool bIsBuildingEntry = false)
+	bool SetPath(TConstArrayView<FVector> InWaypoints, bool bIsBuildingEntry = false)
 	{
+		if (InWaypoints.Num() > MaxWaypoints)
+		{
+			ClearPath();
+			bNeedsReroute = true;
+			return false;
+		}
+
 		NumWaypoints = FMath::Min(InWaypoints.Num(), MaxWaypoints);
 		for (int32 i = 0; i < NumWaypoints; ++i)
 		{
@@ -84,6 +91,7 @@ struct MASSDEMO_API FMassPathFollowingFragment : public FMassFragment
 		bHasActivePath = NumWaypoints > 0;
 		bNeedsReroute = false;
 		bDestinationIsBuildingEntry = bIsBuildingEntry;
+		return true;
 	}
 
 	void ClearPath()

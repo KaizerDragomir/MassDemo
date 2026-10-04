@@ -165,6 +165,9 @@ bool FMassPart3BuildingEntryInteractionTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Unit should now be interacting"), InteractionFrag.IsInteracting());
 	TestEqual(TEXT("Interaction duration should match"), InteractionFrag.InteractionTimeRemaining, 2.0f);
 	TestEqual(TEXT("Target building ID should match"), InteractionFrag.InteractingBuildingId, 10);
+	TestEqual(TEXT("Behavior target building ID should be assignable"), BehaviorFrag.TargetBuildingId, INDEX_NONE);
+	BehaviorFrag.TargetBuildingId = 10;
+	TestEqual(TEXT("Behavior target building ID should match entry target"), BehaviorFrag.TargetBuildingId, 10);
 
 	// 2. Step interaction halfway
 	const bool bMidStep = InteractionFrag.StepInteraction(1.0f);

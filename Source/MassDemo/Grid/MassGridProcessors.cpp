@@ -36,15 +36,15 @@ void UMassGridWanderBehaviorProcessor::ConfigureQueries(const TSharedRef<FMassEn
 void UMassGridWanderBehaviorProcessor::Execute(FMassEntityManager& EntityManager, FMassExecutionContext& Context)
 {
 	const float DeltaTime = Context.GetDeltaTimeSeconds();
-	const UMassGridSubsystem* GridSubsystem = Context.GetSubsystem<UMassGridSubsystem>();
 
-	if (!GridSubsystem)
+	EntityQuery.ForEachEntityChunk(Context, [DeltaTime](FMassExecutionContext& ChunkContext)
 	{
-		return;
-	}
+		const UMassGridSubsystem* GridSubsystem = ChunkContext.GetSubsystem<UMassGridSubsystem>();
+		if (!GridSubsystem)
+		{
+			return;
+		}
 
-	EntityQuery.ForEachEntityChunk(Context, [DeltaTime, GridSubsystem](FMassExecutionContext& ChunkContext)
-	{
 		const int32 NumEntities = ChunkContext.GetNumEntities();
 		const TArrayView<FMassUnitBehaviorFragment> BehaviorList = ChunkContext.GetMutableFragmentView<FMassUnitBehaviorFragment>();
 		const TArrayView<FMassPathFollowingFragment> PathList = ChunkContext.GetMutableFragmentView<FMassPathFollowingFragment>();
@@ -103,9 +103,14 @@ void UMassGridWanderBehaviorProcessor::Execute(FMassEntityManager& EntityManager
 				{
 					TArray<FVector> CalculatedWaypoints;
 					UMassGridPathfinderLibrary::ConvertPathToLocalPositions(*GridData, CoordPath, CalculatedWaypoints, 50.0f);
-					const bool bIsEntry = GridData->GetCell(LocFrag.TargetCoord) && GridData->GetCell(LocFrag.TargetCoord)->CellType == EGridCellType::BuildingEntry;
-					PathFrag.SetPath(CalculatedWaypoints, bIsEntry);
-					BehaviorFrag.State = EUnitBehaviorState::Wandering;
+					const FGridCell* TargetCell = GridData->GetCell(LocFrag.TargetCoord);
+					const bool bIsEntry = TargetCell && TargetCell->CellType == EGridCellType::BuildingEntry;
+					if (PathFrag.SetPath(CalculatedWaypoints, bIsEntry))
+					{
+						BehaviorFrag.State = EUnitBehaviorState::Wandering;
+						BehaviorFrag.bTargetingBuildingEntry = bIsEntry;
+						BehaviorFrag.TargetBuildingId = bIsEntry && TargetCell ? TargetCell->BuildingId : INDEX_NONE;
+					}
 				}
 				else
 				{
@@ -151,10 +156,14 @@ void UMassGridWanderBehaviorProcessor::Execute(FMassEntityManager& EntityManager
 						{
 							TArray<FVector> CalculatedWaypoints;
 							UMassGridPathfinderLibrary::ConvertPathToLocalPositions(*GridData, CoordPath, CalculatedWaypoints, 50.0f);
-							PathFrag.SetPath(CalculatedWaypoints, bIsBuildingEntry);
-							LocFrag.TargetCoord = TargetCoord;
-							BehaviorFrag.State = EUnitBehaviorState::Wandering;
-							BehaviorFrag.bTargetingBuildingEntry = bIsBuildingEntry;
+							if (PathFrag.SetPath(CalculatedWaypoints, bIsBuildingEntry))
+							{
+								const FGridCell* TargetCell = GridData->GetCell(TargetCoord);
+								LocFrag.TargetCoord = TargetCoord;
+								BehaviorFrag.State = EUnitBehaviorState::Wandering;
+								BehaviorFrag.bTargetingBuildingEntry = bIsBuildingEntry;
+								BehaviorFrag.TargetBuildingId = bIsBuildingEntry && TargetCell ? TargetCell->BuildingId : INDEX_NONE;
+							}
 						}
 						else
 						{
@@ -201,10 +210,15 @@ void UMassGridMovementProcessor::ConfigureQueries(const TSharedRef<FMassEntityMa
 void UMassGridMovementProcessor::Execute(FMassEntityManager& EntityManager, FMassExecutionContext& Context)
 {
 	const float DeltaTime = Context.GetDeltaTimeSeconds();
-	UMassGridSubsystem* GridSubsystem = Context.GetMutableSubsystem<UMassGridSubsystem>();
 
-	EntityQuery.ForEachEntityChunk(Context, [DeltaTime, GridSubsystem](FMassExecutionContext& ChunkContext)
+	EntityQuery.ForEachEntityChunk(Context, [DeltaTime](FMassExecutionContext& ChunkContext)
 	{
+		UMassGridSubsystem* GridSubsystem = ChunkContext.GetMutableSubsystem<UMassGridSubsystem>();
+		if (!GridSubsystem)
+		{
+			return;
+		}
+
 		const int32 NumEntities = ChunkContext.GetNumEntities();
 		const TArrayView<FMassPathFollowingFragment> PathList = ChunkContext.GetMutableFragmentView<FMassPathFollowingFragment>();
 		const TArrayView<FMassGridLocationFragment> LocationList = ChunkContext.GetMutableFragmentView<FMassGridLocationFragment>();
@@ -242,11 +256,21 @@ void UMassGridMovementProcessor::Execute(FMassEntityManager& EntityManager, FMas
 			{
 				const FVector TargetLocalPos = PathFrag.LocalWaypoints[PathFrag.CurrentWaypointIndex];
 
-				// Dynamic Obstacle Check: ensure the waypoint's cell is still walkable
+				// Dynamic Obstacle Check: ensure all remaining waypoint cells are still walkable
 				if (GridData)
 				{
-					const FGridCoord NextWaypointCoord = GridData->LocalPositionToCell(TargetLocalPos);
-					if (!GridData->IsWalkable(NextWaypointCoord))
+					bool bRemainingPathWalkable = true;
+					for (int32 WaypointIndex = PathFrag.CurrentWaypointIndex; WaypointIndex < PathFrag.NumWaypoints; ++WaypointIndex)
+					{
+						const FGridCoord WaypointCoord = GridData->LocalPositionToCell(PathFrag.LocalWaypoints[WaypointIndex]);
+						if (!GridData->IsWalkable(WaypointCoord))
+						{
+							bRemainingPathWalkable = false;
+							break;
+						}
+					}
+
+					if (!bRemainingPathWalkable)
 					{
 						// Dynamic obstacle spawned on our path! Trigger reroute
 						PathFrag.InvalidateForReroute();
@@ -279,12 +303,10 @@ void UMassGridMovementProcessor::Execute(FMassEntityManager& EntityManager, FMas
 					// Reached final waypoint
 					if (PathFrag.CurrentWaypointIndex >= PathFrag.NumWaypoints)
 					{
-						LocFrag.CurrentCoord = LocFrag.TargetCoord;
-
 						if (PathFrag.bDestinationIsBuildingEntry)
 						{
 							BehaviorFrag.State = EUnitBehaviorState::Interacting;
-							InteractionFrag.StartInteraction(2.0f);
+							InteractionFrag.StartInteraction(2.0f, BehaviorFrag.TargetBuildingId);
 						}
 						else
 						{

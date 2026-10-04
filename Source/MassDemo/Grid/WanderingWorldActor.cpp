@@ -283,9 +283,26 @@ void AWanderingWorldActor::SpawnGridEntities(int32 Count)
 	for (int32 i = 0; i < Count; ++i)
 	{
 		FGridCoord SpawnCoord;
-		if (!GridData.GetRandomWalkableCell(SpawnCoord))
+		FWorldGridData& MutableGridData = WorldGridComponent->GetGridData();
+		bool bReservedSpawnCell = false;
+		for (int32 Attempt = 0; Attempt < 20; ++Attempt)
+		{
+			if (!GridData.GetRandomWalkableCell(SpawnCoord))
+			{
+				break;
+			}
+
+			if (MutableGridData.TryIncrementOccupancy(SpawnCoord, 8))
+			{
+				bReservedSpawnCell = true;
+				break;
+			}
+		}
+
+		if (!bReservedSpawnCell)
 		{
 			SpawnCoord = FGridCoord(0, 0);
+			MutableGridData.TryIncrementOccupancy(SpawnCoord, 8);
 		}
 
 		FVector LocalPos = GridData.CellToLocalPosition(SpawnCoord, 50.0f);

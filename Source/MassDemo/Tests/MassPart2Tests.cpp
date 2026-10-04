@@ -33,7 +33,7 @@ bool FMassPart2FragmentsTest::RunTest(const FString& Parameters)
 		FVector(100.0f, 0.0f, 50.0f),
 		FVector(200.0f, 0.0f, 50.0f)
 	};
-	PathFrag.SetPath(TestWaypoints);
+	TestTrue(TEXT("SetPath should accept waypoints within fixed buffer"), PathFrag.SetPath(TestWaypoints));
 	TestTrue(TEXT("SetPath should activate path"), PathFrag.bHasActivePath);
 	TestEqual(TEXT("Waypoint count should match"), PathFrag.NumWaypoints, 3);
 	TestEqual(TEXT("CurrentWaypointIndex should start at 1"), PathFrag.CurrentWaypointIndex, 1);
@@ -42,6 +42,12 @@ bool FMassPart2FragmentsTest::RunTest(const FString& Parameters)
 	PathFrag.ClearPath();
 	TestFalse(TEXT("ClearPath should deactivate path"), PathFrag.bHasActivePath);
 	TestEqual(TEXT("NumWaypoints after clear should be 0"), PathFrag.NumWaypoints, 0);
+
+	TArray<FVector> TooManyWaypoints;
+	TooManyWaypoints.SetNum(FMassPathFollowingFragment::MaxWaypoints + 1);
+	TestFalse(TEXT("SetPath should reject paths that exceed fixed buffer"), PathFrag.SetPath(TooManyWaypoints));
+	TestFalse(TEXT("Rejected oversized path should not activate path"), PathFrag.bHasActivePath);
+	TestTrue(TEXT("Rejected oversized path should request reroute"), PathFrag.bNeedsReroute);
 
 	// 3. Test FMassStunFragment
 	FMassStunFragment StunFrag;
@@ -110,7 +116,7 @@ bool FMassPart2PathfindingToWaypointsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Waypoint count should match path coordinate count"), LocalWaypoints.Num(), Path.Num());
 
 	FMassPathFollowingFragment PathFrag;
-	PathFrag.SetPath(LocalWaypoints);
+	TestTrue(TEXT("PathFrag should accept generated waypoints"), PathFrag.SetPath(LocalWaypoints));
 
 	TestTrue(TEXT("PathFrag should have active path"), PathFrag.bHasActivePath);
 	TestEqual(TEXT("PathFrag should have correct number of waypoints"), PathFrag.NumWaypoints, LocalWaypoints.Num());
